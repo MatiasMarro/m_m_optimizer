@@ -153,8 +153,8 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 | `nesting/` | `dxf_importer.py`: leer formas arbitrarias con `ezdxf` | P1 |
 | `ui/components/canvas/` | Zoom/pan: conectar callbacks `CanvasToolbar` → `NestingCanvas` | P1 |
 | `ui/components/canvas/` | Drag & drop piezas en canvas | P1 |
-| `requirements.txt` | ~~Pinear versiones con `==`~~ ✅ DONE en pytest; pendiente resto de deps | P1 |
-| `nesting/config.py` | Fix `INVENTORY_PATH` relativo al CWD → usar `Path(__file__)` | P1 |
+| `requirements.txt` | ~~Pinear versiones con `==`~~ ✅ DONE — todas las deps fijadas | — |
+| `nesting/config.py` | ~~Fix `INVENTORY_PATH` relativo al CWD~~ ✅ DONE | — |
 | `ui/views/Dashboard.tsx` | KPIs dinámicos desde proyectos persistidos + gráficos | P2 |
 | `ui/views/Designer.tsx` | Preview 3D/2D del mueble (placeholder vacío) | P2 |
 | General | Nesting no-rectangular con formas DXF reales (`pynest2d`) | P3 |
@@ -166,5 +166,5 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 1. **[P0] Settings / tarifas editables:** Exponer `GET/PUT /config/costing` en `api/server.py`; leer/escribir `costing/config.py` o un `data/config.json` separado; form en `Settings.tsx`.
 2. **[P0] Auto-sync types TS:** Agregar `openapi-typescript` como devDependency; script `npm run gen:types` que llama `openapi-typescript http://localhost:8000/openapi.json -o src/lib/types.ts`.
 3. **[P1] Zoom/pan del canvas:** Estado local `{ scale, offsetX, offsetY }` en `NestingCanvas`; pasar `onZoomIn/onZoomOut/onFit` desde `Nesting.tsx` a `CanvasToolbar`.
-4. **[P1] Fix path offcuts:** En `nesting/config.py` cambiar `INVENTORY_PATH` a `str(Path(__file__).parent.parent / "data" / "offcuts.json")`.
-5. **[P1] Pinear todas las deps:** En `requirements.txt` fijar `rectpack`, `ezdxf`, `fastapi`, `uvicorn`, `pydantic` con `==` versión instalada actualmente.
+4. **[P1] Pinear todas las deps:** En `requirements.txt` fijar `rectpack`, `ezdxf`, `fastapi`, `uvicorn`, `pydantic` con `==` versión instalada actualmente.
+5. **[P2] Dashboard dinámico:** Leer `data/projects/*.json` y calcular KPIs reales (eficiencia promedio, retazos en stock, proyectos del mes).

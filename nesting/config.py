@@ -5,4 +5,5 @@ STANDARD_THICKNESS = 18
 KERF = 3                # mm, ancho de corte de sierra
 MIN_OFFCUT_SIDE = 200   # mm, lado mínimo para registrar un retazo reutilizable
 
-INVENTORY_PATH = "data/offcuts.json"
+from pathlib import Path
+INVENTORY_PATH = str(Path(__file__).parent.parent / "data" / "offcuts.json")
