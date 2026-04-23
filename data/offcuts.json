@@ -1,0 +1,74 @@
+[
+  {
+    "id": "R0001",
+    "ancho": 224,
+    "alto": 2440,
+    "x": 1606,
+    "y": 0,
+    "usado": false
+  },
+  {
+    "id": "R0002",
+    "ancho": 1606,
+    "alto": 578,
+    "x": 0,
+    "y": 1862,
+    "usado": true
+  },
+  {
+    "id": "R0003",
+    "ancho": 374,
+    "alto": 2440,
+    "x": 1456,
+    "y": 0,
+    "usado": false
+  },
+  {
+    "id": "R0004",
+    "ancho": 1456,
+    "alto": 1131,
+    "x": 0,
+    "y": 1309,
+    "usado": true
+  },
+  {
+    "id": "R0005",
+    "ancho": 1806,
+    "alto": 1537,
+    "x": 0,
+    "y": 903,
+    "usado": true
+  },
+  {
+    "id": "R0006",
+    "ancho": 227,
+    "alto": 2440,
+    "x": 1603,
+    "y": 0,
+    "usado": false
+  },
+  {
+    "id": "R0007",
+    "ancho": 1603,
+    "alto": 581,
+    "x": 0,
+    "y": 1859,
+    "usado": true
+  },
+  {
+    "id": "R0008",
+    "ancho": 327,
+    "alto": 2440,
+    "x": 1503,
+    "y": 0,
+    "usado": false
+  },
+  {
+    "id": "R0009",
+    "ancho": 1503,
+    "alto": 1134,
+    "x": 0,
+    "y": 1306,
+    "usado": false
+  }
+]
