@@ -9,8 +9,36 @@
 - `parametric/` genera `[Piece]` con `Hole[]` → pasa a `nesting/optimizer.py` → devuelve `Layout`
 - `main.py::run_pipeline()` es la API pura del dominio; orquesta: `get_pieces → apply_edging_policy → NestingOptimizer → CostCalculator → DXFExporter`
 - `api/server.py` envuelve `run_pipeline` como thin REST wrapper (FastAPI); serializa via `api/schemas.py` (Pydantic v2)
-- `ui/` consume `POST /api/pipeline/run` y `GET /api/inventory/offcuts`; estado en `projectStore` (zustand, efímero en RAM)
-- `data/offcuts.json` es el único storage persistente; sin DB relacional ni servicios externos
+- `ui/` consume `POST /api/pipeline/run`, `GET /api/inventory/offcuts` y `CRUD /api/projects`; estado en `projectStore` (zustand, efímero en RAM)
+- Storage persistente: `data/offcuts.json` (retazos) + `data/projects/{id}.json` (proyectos guardados, un JSON por proyecto)
+
+---
+
+# CURRENT_STATE
+
+**Completado:**
+- Pipeline completo backend: paramétrico → nesting 2 fases → costos → DXF
+- API REST: health, pipeline/run, inventory/offcuts, CRUD completo de proyectos
+- UI funcional: Designer, Nesting (canvas read-only), Costs, Inventory, Export, Projects (lista + cargar + eliminar)
+- Persistencia de proyectos: `data/projects/` con JSON por proyecto, `ProjectMeta` + `SavedProject`
+- Guardado desde `Export.tsx` con prompt de nombre; carga desde `Projects.tsx` restaura spec + result
+- **Suite pytest: 25 tests, 25 passed** — `tests/` cubre parametric, nesting, costing, pipeline
+
+**En progreso / parcial:**
+- `ui/lib/types.ts` — sincronización manual con `api/schemas.py` (~80%, funcional pero sin automatizar)
+- Canvas interactivo — renderizado OK, zoom/pan/drag sin implementar (~30%)
+- Dashboard — KPIs hardcodeados, sin datos reales (~10%)
+
+---
+
+# CHANGES_THIS_SESSION
+- **`tests/`** — directorio creado con suite pytest completa (25 tests, 25 passed)
+- **`tests/conftest.py`** — fixtures: `std_sheet`, `cabinet_600`, `shelving_800`, `cabinet_pieces`, `cabinet_layout`; fixture `_isolate_inventory_cwd` aísla `OffcutInventory` del JSON real via `monkeypatch.chdir(tmp_path)`
+- **`tests/test_parametric.py`** — 9 tests: conteo de piezas, dimensiones, grain_lock, holes por cara/canto, validaciones
+- **`tests/test_nesting.py`** — 7 tests: placement completo, eficiencia, grain_locked sin rotación, offcuts mínimos, pieza imposible → unplaced
+- **`tests/test_costing.py`** — 7 tests: total > 0, total == subtotal + margen, rubros, tapacanto, margen 40%, herrajes
+- **`tests/test_pipeline.py`** — 4 tests: `ProjectResult` completo, warnings es lista, dxf_path None, error propagado
+- **`requirements.txt`** — agregados `pytest==9.0.3` y `pytest-cov==7.1.0` (versiones fijadas con `==`)
 
 ---
 
@@ -26,6 +54,8 @@
 | `CostBreakdown` | `material_placas`, `tapacanto`, `tiempo_cnc`, `mano_obra`, `margen` → `total` | output de `CostCalculator.compute()` |
 | `Hole` | `x`, `y`, `diameter`, `depth`, `type(HoleType)`, `face(Face)` | lista en `Piece.holes[]`; dibujada por `DXFExporter` |
 | `HardwareConfig` | `union_laterales`, `union_estantes`, `offset_front`, `offset_back` | campo de `Furniture`; controla tipo de perforación |
+| `ProjectMeta` | `id`, `nombre`, `created_at`, `furniture_tipo`, `ancho`, `alto`, `profundidad` | índice en `GET /projects`; id = `uuid4()[:8]` |
+| `SavedProject` | `meta`, `spec(FurnitureSpec)`, `result(PipelineResponse)` | archivo `data/projects/{id}.json` |
 
 ---
 
@@ -35,6 +65,10 @@
 - `[GET] /health` → liveness check
 - `[POST] /pipeline/run` → ejecuta pipeline completo; body: `PipelineRequest`, response: `PipelineResponse`
 - `[GET] /inventory/offcuts` → lista retazos disponibles
+- `[POST] /projects` → guarda proyecto; body: `SaveProjectRequest`, response: `ProjectMeta`
+- `[GET] /projects` → lista todos los `ProjectMeta` (orden desc por `created_at`)
+- `[GET] /projects/{id}` → retorna `SavedProject` completo
+- `[DELETE] /projects/{id}` → elimina `data/projects/{id}.json`
 
 ## CLI (`main.py`)
 - `python main.py cabinet --ancho N --alto N --profundidad N [--estantes N] [--use-inventory] [--export PATH]`
@@ -62,8 +96,9 @@ run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, ed
 | `KERF = 3` | `nesting/config.py` | Ancho de corte mm |
 | `STANDARD_SHEET_W/H = 1830/2440` | `nesting/config.py` | Dimensiones placa estándar mm |
 | `MIN_OFFCUT_SIDE = 200` | `nesting/config.py` | Lado mínimo retazo reutilizable mm |
-| `INVENTORY_PATH = "data/offcuts.json"` | `nesting/config.py` | Path relativo al CWD |
-| CORS origins | `api/server.py:12` | Hardcoded `localhost:5173` + `127.0.0.1:5173` |
+| `INVENTORY_PATH = "data/offcuts.json"` | `nesting/config.py` | ⚠️ Relativo al CWD — pendiente fix |
+| `PROJECTS_DIR` | `api/server.py` | `Path(__file__).parent.parent / "data/projects"` (absoluto ✓) |
+| CORS origins | `api/server.py` | Hardcoded `localhost:5173` + `127.0.0.1:5173` |
 
 ---
 
@@ -110,25 +145,26 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 
 | Módulo | Feature pendiente | Prioridad |
 |---|---|---|
-| `ui/views/Settings.tsx` | Editor de tarifas (editar `costing/config.py` desde UI) | P0 |
-| `ui/lib/types.ts` | Sincronización automática con `api/schemas.py` (manual ahora) | P0 |
-| General | Tests formales con pytest/vitest + aserciones | P0 |
+| `ui/views/Settings.tsx` | Editor de tarifas (`GET/PUT /config/costing` + form) | P0 |
+| `ui/lib/types.ts` | Auto-sync con `api/schemas.py` via `openapi-typescript` | P0 |
+| General | ~~Tests formales pytest + fixtures con `assert`~~ ✅ DONE (25/25) | — |
+| `ui/views/Projects.tsx` | ~~CRUD persistente~~ ✅ DONE | — |
 | `costing/calculator.py` | Tiempo CNC sobreestima (no deduplica cortes compartidos) | P1 |
 | `nesting/` | `dxf_importer.py`: leer formas arbitrarias con `ezdxf` | P1 |
-| `ui/components/canvas/` | Drag & drop piezas + zoom/pan (callbacks sin conectar) | P1 |
-| `ui/views/Projects.tsx` | CRUD persistente de proyectos (sin DB aún) | P1 |
-| `requirements.txt` | Pinear versiones con `==` para reproducibilidad | P1 |
-| `nesting/config.py` | Resolver path `offcuts.json` relativo al CWD | P1 |
+| `ui/components/canvas/` | Zoom/pan: conectar callbacks `CanvasToolbar` → `NestingCanvas` | P1 |
+| `ui/components/canvas/` | Drag & drop piezas en canvas | P1 |
+| `requirements.txt` | ~~Pinear versiones con `==`~~ ✅ DONE en pytest; pendiente resto de deps | P1 |
+| `nesting/config.py` | Fix `INVENTORY_PATH` relativo al CWD → usar `Path(__file__)` | P1 |
+| `ui/views/Dashboard.tsx` | KPIs dinámicos desde proyectos persistidos + gráficos | P2 |
 | `ui/views/Designer.tsx` | Preview 3D/2D del mueble (placeholder vacío) | P2 |
-| `ui/views/Dashboard.tsx` | KPIs dinámicos + gráficos de tendencia (hardcoded) | P2 |
 | General | Nesting no-rectangular con formas DXF reales (`pynest2d`) | P3 |
 
 ---
 
 # NEXT_STEPS
 
-1. **[P0] Fijar tipos TS ↔ Python:** Generar `ui/src/lib/types.ts` automáticamente desde `api/schemas.py` (script o `openapi-typescript`) para eliminar drift.
-2. **[P0] Agregar pytest + fixtures:** Convertir `test_nesting.py` y `test_costing.py` en suites formales con `assert`; mínimo: nesting de Cabinet básico + breakdown de costos.
-3. **[P0] Settings / tarifas editables:** Exponer `GET/PUT /config/costing` en API; widget en `Settings.tsx` para editar sin tocar código.
-4. **[P1] Persistencia de proyectos:** `POST /projects` + `GET /projects/:id`; almacenar `ProjectResult` serializado en SQLite (`sqlite3` stdlib) o JSON en `data/projects/`.
-5. **[P1] Conectar zoom/pan del canvas:** Pasar handlers desde `Nesting.tsx` a `CanvasToolbar`; implementar scale/offset en `NestingCanvas` con estado local.
+1. **[P0] Settings / tarifas editables:** Exponer `GET/PUT /config/costing` en `api/server.py`; leer/escribir `costing/config.py` o un `data/config.json` separado; form en `Settings.tsx`.
+2. **[P0] Auto-sync types TS:** Agregar `openapi-typescript` como devDependency; script `npm run gen:types` que llama `openapi-typescript http://localhost:8000/openapi.json -o src/lib/types.ts`.
+3. **[P1] Zoom/pan del canvas:** Estado local `{ scale, offsetX, offsetY }` en `NestingCanvas`; pasar `onZoomIn/onZoomOut/onFit` desde `Nesting.tsx` a `CanvasToolbar`.
+4. **[P1] Fix path offcuts:** En `nesting/config.py` cambiar `INVENTORY_PATH` a `str(Path(__file__).parent.parent / "data" / "offcuts.json")`.
+5. **[P1] Pinear todas las deps:** En `requirements.txt` fijar `rectpack`, `ezdxf`, `fastapi`, `uvicorn`, `pydantic` con `==` versión instalada actualmente.
