@@ -33,7 +33,7 @@ export default function Designer() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.runPipeline({ furniture: spec });
+      const res = await api.runPipeline({ furniture: spec, use_inventory: false, export_dxf: false });
       setResult(res);
       nav("/nesting");
     } catch (e) {

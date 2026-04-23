@@ -26,7 +26,6 @@
 - **Suite pytest: 25 tests, 25 passed** — `tests/` cubre parametric, nesting, costing, pipeline
 
 **En progreso / parcial:**
-- `ui/lib/types.ts` — sincronización manual con `api/schemas.py` (~80%, funcional pero sin automatizar)
 - Canvas interactivo — renderizado OK, zoom/pan/drag sin implementar (~30%)
 - Dashboard — KPIs hardcodeados, sin datos reales (~10%)
 
@@ -47,6 +46,11 @@
 - **`ui/src/lib/types.ts`** — agregado `CostingConfig` interface
 - **`ui/src/lib/api.ts`** — agregados `getConfig()` y `putConfig()`
 - **`ui/src/views/Settings.tsx`** — form completo: carga tarifas, 8 campos editables, margen como %, Guardar con feedback
+- **`ui/src/lib/openapi.generated.ts`** — CREADO: tipos auto-generados desde OpenAPI; `npm run gen:types` para regenerar (requiere backend en :8000)
+- **`ui/src/lib/types.ts`** — reescrito: re-exporta desde `openapi.generated.ts`; ya no se mantiene a mano
+- **`ui/package.json`** — agregado script `gen:types`; instalados `openapi-typescript` y `@types/node` como devDependencies; corregido `typecheck` script
+- **`ui/tsconfig.node.json`** — agregado `"types": ["node"]` para resolver `__dirname` en `vite.config.ts`
+- **`ui/src/views/Designer.tsx`** y **`Export.tsx`** — agregados campos requeridos `use_inventory` y `export_dxf` en llamadas a `runPipeline`
 
 ---
 
@@ -158,7 +162,7 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 | Módulo | Feature pendiente | Prioridad |
 |---|---|
 | `ui/views/Settings.tsx` | ~~Editor de tarifas (`GET/PUT /config/costing` + form)~~ ✅ DONE | — |
-| `ui/lib/types.ts` | Auto-sync con `api/schemas.py` via `openapi-typescript` | P0 |
+| `ui/lib/types.ts` | ~~Auto-sync con `api/schemas.py` via `openapi-typescript`~~ ✅ DONE | — |
 | General | ~~Tests formales pytest + fixtures con `assert`~~ ✅ DONE (25/25) | — |
 | `ui/views/Projects.tsx` | ~~CRUD persistente~~ ✅ DONE | — |
 | `costing/calculator.py` | Tiempo CNC sobreestima (no deduplica cortes compartidos) | P1 |
@@ -175,6 +179,5 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 
 # NEXT_STEPS
 
-1. **[P0] Auto-sync types TS:** Agregar `openapi-typescript` como devDependency; script `npm run gen:types` que llama `openapi-typescript http://localhost:8000/openapi.json -o src/lib/types.ts`.
-2. **[P1] Zoom/pan del canvas:** Estado local `{ scale, offsetX, offsetY }` en `NestingCanvas`; pasar `onZoomIn/onZoomOut/onFit` desde `Nesting.tsx` a `CanvasToolbar`.
-3. **[P2] Dashboard dinámico:** Leer `data/projects/*.json` y calcular KPIs reales (eficiencia promedio, retazos en stock, proyectos del mes).
+1. **[P1] Zoom/pan del canvas:** Estado local `{ scale, offsetX, offsetY }` en `NestingCanvas`; pasar `onZoomIn/onZoomOut/onFit` desde `Nesting.tsx` a `CanvasToolbar`.
+2. **[P2] Dashboard dinámico:** Leer `data/projects/*.json` y calcular KPIs reales (eficiencia promedio, retazos en stock, proyectos del mes).

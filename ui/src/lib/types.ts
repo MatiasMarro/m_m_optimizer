@@ -1,119 +1,25 @@
-// Espejo de api/schemas.py. Mantener en sync manualmente (por ahora).
+/**
+ * Tipos sincronizados automáticamente con api/schemas.py.
+ * Para regenerar: npm run gen:types (requiere backend corriendo en :8000)
+ * NO editar manualmente — editar api/schemas.py y regenerar.
+ */
+import type { components } from "./openapi.generated";
+
+type S = components["schemas"];
 
 export type FurnitureType = "cabinet" | "shelving";
 
-export interface FurnitureSpec {
-  tipo: FurnitureType;
-  ancho: number;
-  alto: number;
-  profundidad: number;
-  espesor?: number;
-  num_estantes?: number;
-  con_fondo?: boolean;
-}
+export type FurnitureSpec     = S["FurnitureSpec"];
+export type HardwareItem      = S["HardwareItemDTO"];
+export type PipelineRequest   = S["PipelineRequest"];
+export type Piece             = S["PieceDTO"];
+export type PlacedPiece       = S["PlacedPieceDTO"];
+export type SheetUsage        = S["SheetUsageDTO"];
+export type Offcut            = S["OffcutDTO"];
+export type Layout            = S["LayoutDTO"];
+export type Cost              = S["CostDTO"];
+export type PipelineResponse  = S["PipelineResponse"];
+export type ProjectMeta       = S["ProjectMeta"];
+export type SavedProject      = S["SavedProject"];
+export type CostingConfig     = S["CostingConfig"];
 
-export interface HardwareItem {
-  nombre: string;
-  qty: number;
-  precio_unit: number;
-}
-
-export interface PipelineRequest {
-  furniture: FurnitureSpec;
-  use_inventory?: boolean;
-  horas_mo?: number;
-  herrajes?: HardwareItem[];
-  export_dxf?: boolean;
-}
-
-export interface Piece {
-  name: string;
-  width: number;
-  height: number;
-  qty: number;
-  grain_locked: boolean;
-  edged: [boolean, boolean, boolean, boolean];
-}
-
-export interface PlacedPiece {
-  piece_name: string;
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-  rotated: boolean;
-}
-
-export interface SheetUsage {
-  sheet_id: string;
-  sheet_width: number;
-  sheet_height: number;
-  is_offcut: boolean;
-  placed: PlacedPiece[];
-  efficiency: number;
-}
-
-export interface Offcut {
-  id: string;
-  width: number;
-  height: number;
-}
-
-export interface Layout {
-  sheets_used: SheetUsage[];
-  unplaced: Piece[];
-  new_offcuts: Offcut[];
-  efficiency: number;
-}
-
-export interface Cost {
-  material_placas: number;
-  material_retazos: number;
-  tapacanto: number;
-  tiempo_cnc: number;
-  mano_obra: number;
-  herrajes: number;
-  margen: number;
-  subtotal: number;
-  total: number;
-  placas_nuevas: number;
-  retazos_consumidos: number;
-  metros_tapacanto: number;
-  minutos_cnc: number;
-  horas_mo: number;
-}
-
-export interface PipelineResponse {
-  pieces: Piece[];
-  layout: Layout;
-  costo: Cost;
-  dxf_path: string | null;
-  warnings: string[];
-}
-
-export interface ProjectMeta {
-  id: string;
-  nombre: string;
-  created_at: string;
-  furniture_tipo: FurnitureType;
-  ancho: number;
-  alto: number;
-  profundidad: number;
-}
-
-export interface SavedProject {
-  meta: ProjectMeta;
-  spec: FurnitureSpec;
-  result: PipelineResponse;
-}
-
-export interface CostingConfig {
-  precio_placa_mdf18: number;
-  factor_valor_retazo: number;
-  precio_tapacanto_m: number;
-  costo_hora_cnc: number;
-  velocidad_corte_mm_min: number;
-  costo_hora_mo: number;
-  horas_mo_default: number;
-  margen: number;
-}

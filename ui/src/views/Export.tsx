@@ -13,7 +13,7 @@ export default function Export() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.runPipeline({ furniture: spec, export_dxf: true });
+      const res = await api.runPipeline({ furniture: spec, use_inventory: false, export_dxf: true });
       setResult(res);
     } catch (e) {
       setError(String(e));
