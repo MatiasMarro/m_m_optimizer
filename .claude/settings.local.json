@@ -5,7 +5,9 @@
       "Bash(python)",
       "Bash(python *)",
       "Bash(pip install *)",
-      "Bash(kill blbvqikte *)"
+      "Bash(kill blbvqikte *)",
+      "Bash(npm run *)",
+      "Bash(npx tsc *)"
     ]
   }
 }

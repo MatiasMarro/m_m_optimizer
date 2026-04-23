@@ -4,7 +4,11 @@
 """
 from __future__ import annotations
 
+import json
+import uuid
 from dataclasses import asdict, is_dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import List
 
 from fastapi import FastAPI, HTTPException
@@ -23,8 +27,13 @@ from .schemas import (
     PipelineRequest,
     PipelineResponse,
     PlacedPieceDTO,
+    ProjectMeta,
+    SaveProjectRequest,
+    SavedProject,
     SheetUsageDTO,
 )
+
+PROJECTS_DIR = Path(__file__).parent.parent / "data" / "projects"
 
 app = FastAPI(title="m_m_optimizer API", version="0.1.0")
 
@@ -81,6 +90,59 @@ def list_offcuts():
     for o in inv.available():
         out.append(asdict(o) if is_dataclass(o) else o)
     return out
+
+
+@app.post("/projects", response_model=ProjectMeta)
+def save_project(req: SaveProjectRequest) -> ProjectMeta:
+    PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    pid = str(uuid.uuid4())[:8]
+    meta = ProjectMeta(
+        id=pid,
+        nombre=req.nombre,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        furniture_tipo=req.spec.tipo,
+        ancho=req.spec.ancho,
+        alto=req.spec.alto,
+        profundidad=req.spec.profundidad,
+    )
+    saved = SavedProject(meta=meta, spec=req.spec, result=req.result)
+    (PROJECTS_DIR / f"{pid}.json").write_text(
+        saved.model_dump_json(indent=2), encoding="utf-8"
+    )
+    return meta
+
+
+@app.get("/projects", response_model=List[ProjectMeta])
+def list_projects() -> List[ProjectMeta]:
+    if not PROJECTS_DIR.exists():
+        return []
+    metas: List[ProjectMeta] = []
+    for f in PROJECTS_DIR.glob("*.json"):
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            metas.append(ProjectMeta(**data["meta"]))
+        except (json.JSONDecodeError, KeyError, ValueError):
+            continue
+    metas.sort(key=lambda m: m.created_at, reverse=True)
+    return metas
+
+
+@app.get("/projects/{project_id}", response_model=SavedProject)
+def get_project(project_id: str) -> SavedProject:
+    path = PROJECTS_DIR / f"{project_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    return SavedProject(**data)
+
+
+@app.delete("/projects/{project_id}")
+def delete_project(project_id: str):
+    path = PROJECTS_DIR / f"{project_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    path.unlink()
+    return {"ok": True}
 
 
 def _sheet_efficiency(u) -> float:

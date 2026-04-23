@@ -1,112 +1,134 @@
-# Rol
-Arquitecto de software especializado en automatización CNC para carpintería.
-
-# Contexto del negocio
-- Carpintería con CNC (Mach3 + Vectric Aspire V8).
-- 3 muebles/mes → objetivo 8–12 muebles/mes.
-- 2 personas.
-
-# Flujo actual (manual)
-Diseño (AutoCAD/Fusion) → Exportación 2D → Nesting manual en Aspire → G-code → CNC.
-
-# Objetivo técnico
-Crear **capa inteligente** sobre herramientas existentes (no reemplazarlas) que automatice:
-1. Diseño paramétrico de muebles semi-estándar (MDF 18mm).
-2. Generación automática de piezas.
-3. **Nesting optimizado con gestión de sobrantes (estilo Lepton Optimizer)**.
-4. Cálculo de costos.
-5. **[PRÓXIMO]** Interfaz visual con carga de DXF y visualización del nesting.
-
-# Requerimiento clave
-El módulo de nesting debe comportarse como **Lepton Optimizer** (Lepton Sistemas): 
-- Optimización de corte en 2D.
-- Aprovechamiento de retazos.
-- Exportación compatible con Aspire.
-
-# Restricciones
-- Solución en Python.
-- Modular.
-- Respuestas concisas. No explicar lo obvio.
-
-# Documentación de referencia
-Ver `docs/lepton.md` para funcionalidades exactas de Lepton Optimizer a emular.
+# PROJECT_IDENTITY
+- **Name:** m_m_optimizer-cnc
+- **Purpose:** Capa de automatización CNC sobre Mach3 + Vectric Aspire para carpintería (nesting 2D, costos, DXF).
+- **Stack:** `Python 3.11+` · `FastAPI` · `rectpack` · `ezdxf` · `React 18` · `TypeScript` · `Vite` · `Konva` · `zustand` · `Tailwind CSS`
 
 ---
 
-# ESTADO ACTUAL DEL CÓDIGO (snapshot — abril 2026)
-> Leer esta sección antes de analizar archivos. Evita búsquedas redundantes.
+# ARCH_OVERVIEW
+- `parametric/` genera `[Piece]` con `Hole[]` → pasa a `nesting/optimizer.py` → devuelve `Layout`
+- `main.py::run_pipeline()` es la API pura del dominio; orquesta: `get_pieces → apply_edging_policy → NestingOptimizer → CostCalculator → DXFExporter`
+- `api/server.py` envuelve `run_pipeline` como thin REST wrapper (FastAPI); serializa via `api/schemas.py` (Pydantic v2)
+- `ui/` consume `POST /api/pipeline/run` y `GET /api/inventory/offcuts`; estado en `projectStore` (zustand, efímero en RAM)
+- `data/offcuts.json` es el único storage persistente; sin DB relacional ni servicios externos
 
-## Dependencias
-```
-rectpack>=0.2.2   # bin-packing 2D
-ezdxf>=1.0        # lectura/escritura DXF
-```
+---
 
-## Estructura de archivos y responsabilidad
+# CORE_ENTITIES
 
-```
-main.py                  ← Orquestador. run_pipeline() = API pura reutilizable por GUI.
-                           CLI fina con argparse (subcomandos: cabinet, shelving).
-parametric/
-  base.py                ← ABC Furniture(ancho, alto, profundidad, espesor=18). Valida dims.
-  cabinet.py             ← Cabinet: genera [lateral×2, tapa, base, estante×n, fondo].
-  shelving.py            ← ShelvingUnit: estantería abierta.
-nesting/
-  models.py              ← Dataclasses: Piece, Sheet, PlacedPiece, SheetUsage, Layout.
-  config.py              ← KERF=3mm, placa 1830×2440mm, MIN_OFFCUT_SIDE=200mm.
-  optimizer.py           ← NestingOptimizer: algoritmo central (ver detalle abajo).
-  inventory.py           ← OffcutInventory: CRUD retazos en data/offcuts.json.
-  exporter.py            ← DXFExporter.export(layout, path): escribe DXF con 4 capas.
-costing/
-  models.py              ← CostBreakdown, HardwareItem.
-  config.py              ← Tarifas ARS: placa $45k, CNC $8k/h, MO $3.5k/h, margen 40%.
-  calculator.py          ← CostCalculator.compute(layout, pieces, horas_mo, herrajes).
-data/offcuts.json        ← Inventario persistente de retazos (JSON).
-output/nesting.dxf       ← Último DXF generado.
-```
+| Entidad | Campos clave | Relación |
+|---|---|---|
+| `Piece` | `name`, `width`, `height`, `qty`, `grain_locked`, `edged(4×bool)`, `holes[]` | generada por `Furniture.get_pieces()` |
+| `Sheet` | `id`, `width`, `height`, `thickness`, `is_offcut` | bin en `NestingOptimizer`; retazos en `OffcutInventory` |
+| `PlacedPiece` | `piece_name`, `sheet_id`, `x`, `y`, `width`, `height`, `rotated` | contenida en `SheetUsage.placements[]` |
+| `SheetUsage` | `sheet`, `placements[]`, `free_rects[]` | elemento de `Layout.sheets_used[]` |
+| `Layout` | `sheets_used[]`, `unplaced[]`, `efficiency`, `new_offcuts[]` | output de `NestingOptimizer.optimize()` |
+| `CostBreakdown` | `material_placas`, `tapacanto`, `tiempo_cnc`, `mano_obra`, `margen` → `total` | output de `CostCalculator.compute()` |
+| `Hole` | `x`, `y`, `diameter`, `depth`, `type(HoleType)`, `face(Face)` | lista en `Piece.holes[]`; dibujada por `DXFExporter` |
+| `HardwareConfig` | `union_laterales`, `union_estantes`, `offset_front`, `offset_back` | campo de `Furniture`; controla tipo de perforación |
 
-## Pipeline completo (`run_pipeline` en main.py)
+---
+
+# API_SURFACE
+
+## REST (`:8000`)
+- `[GET] /health` → liveness check
+- `[POST] /pipeline/run` → ejecuta pipeline completo; body: `PipelineRequest`, response: `PipelineResponse`
+- `[GET] /inventory/offcuts` → lista retazos disponibles
+
+## CLI (`main.py`)
+- `python main.py cabinet --ancho N --alto N --profundidad N [--estantes N] [--use-inventory] [--export PATH]`
+- `python main.py shelving --ancho N --alto N --profundidad N [--estantes N]`
+
+## `run_pipeline()` (API interna)
 ```
-Furniture.get_pieces() → [Piece]
-  → apply_edging_policy()       # asigna flags tapacanto por nombre de pieza
-  → NestingOptimizer.optimize() → Layout
-  → CostCalculator.compute()    → CostBreakdown
-  → DXFExporter.export()        → .dxf   (opcional)
-  → ProjectResult(furniture, pieces, layout, costo, dxf_path, warnings)
+run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, edging_policy, dxf_path) → ProjectResult
 ```
 
-## Algoritmo de nesting (optimizer.py)
-- Motor: `rectpack` MaxRectsBssf, modo Offline, BFF bins.
-- **Fase 1:** Piezas `grain_locked=True` sin rotación. Retazos primero (menor→mayor área).
-- **Fase 2:** Piezas sin veta con rotación. Huecos libres de Fase 1 = "sub-bins virtuales".
-- Kerf descontado: 3mm por corte.
-- Retazos post-corte detectados si lado libre ≥ 200mm → `Layout.new_offcuts`.
-- ⚠️ `new_offcuts` se detecta pero **no se persiste** automáticamente en `OffcutInventory`.
+---
 
-## Cálculo de costos (calculator.py)
-| Rubro | Lógica |
-|---|---|
-| Placas nuevas | n × $precio_placa |
-| Retazos consumidos | área × ($/mm²_std) × factor_0.5 |
-| Tapacanto | metros lineales según `Piece.edged` (top/right/bottom/left) × precio/m |
-| Tiempo CNC | Σ perímetros / velocidad_corte × costo_hora (sobreestima: no descuenta cortes compartidos) |
-| Mano de obra | horas_mo × costo_hora_mo |
-| Herrajes | HardwareItem(nombre, qty, precio_unitario) |
-| Margen | 40% sobre subtotal |
+# CONFIG
 
-## DXF (exporter.py)
-- **Solo exportación** (ezdxf). No existe importación/lectura de DXF aún.
-- Capas: `CONTORNO_PLACA` (blanco), `PIEZAS` (verde), `ETIQUETAS` (rojo), `RETAZOS` (magenta).
-- Placas dispuestas horizontalmente con GAP=200mm entre sí.
+> Sin `.env`. Todo hardcodeado en archivos de configuración de código fuente.
 
-## Interfaz de usuario
-- **Solo CLI** (`argparse`). No hay GUI.
-- Ejemplo: `python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --use-inventory --export output/nesting.dxf`
+| Constante | Archivo | Propósito |
+|---|---|---|
+| `PRECIO_PLACA_MDF_18 = 45000` | `costing/config.py` | Precio placa nueva ARS |
+| `FACTOR_VALOR_RETAZO = 0.5` | `costing/config.py` | Factor descuento retazo vs placa nueva |
+| `PRECIO_TAPACANTO_M = 800` | `costing/config.py` | $/m tapacanto ARS |
+| `COSTO_HORA_CNC = 8000` | `costing/config.py` | $/h máquina ARS |
+| `COSTO_HORA_MO = 3500` | `costing/config.py` | $/h mano de obra ARS |
+| `MARGEN = 0.40` | `costing/config.py` | Margen sobre subtotal |
+| `KERF = 3` | `nesting/config.py` | Ancho de corte mm |
+| `STANDARD_SHEET_W/H = 1830/2440` | `nesting/config.py` | Dimensiones placa estándar mm |
+| `MIN_OFFCUT_SIDE = 200` | `nesting/config.py` | Lado mínimo retazo reutilizable mm |
+| `INVENTORY_PATH = "data/offcuts.json"` | `nesting/config.py` | Path relativo al CWD |
+| CORS origins | `api/server.py:12` | Hardcoded `localhost:5173` + `127.0.0.1:5173` |
 
-## Lo que NO está implementado (próximos pasos)
-1. **DXF Importer** — `nesting/dxf_importer.py`: leer formas arbitrarias con ezdxf.
-2. **Drag & drop en canvas** — reordenar piezas manualmente con snap a kerf.
-3. ~~**Persistencia automática de retazos**~~ ✅ DONE — run_pipeline siempre crea OffcutInventory y optimizer persiste.
-4. **Panel de tarifas editable** — editar `costing/config.py` desde UI sin tocar código.
-5. **Nesting no-rectangular** — piezas con formas DXF reales (requiere pynest2d o similar).
-6. **Persistencia de proyectos** — DB para guardar/cargar diseños (Local Storage por ahora).
+---
+
+# COMMANDS
+
+```bash
+# Instalar backend
+python -m venv venv
+venv\Scripts\activate          # Windows
+pip install -r requirements.txt
+
+# Instalar frontend
+cd ui && npm install
+
+# Dev (backend)
+uvicorn api.server:app --reload --port 8000
+
+# Dev (frontend)
+cd ui && npm run dev            # → http://localhost:5173
+
+# Dev (todo junto - Windows)
+run.bat                         # o run_debug.bat para ver errores
+
+# Build frontend
+cd ui && npm run build
+
+# Typecheck frontend
+cd ui && npm run typecheck
+
+# Smoke tests (no hay pytest formal)
+python test_nesting.py
+python test_costing.py
+
+# CLI manual
+python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --export output/nesting.dxf
+
+# Generar DXF desde API
+# POST /pipeline/run con export_dxf: true → escribe output/nesting.dxf
+```
+
+---
+
+# TODO_STATE
+
+| Módulo | Feature pendiente | Prioridad |
+|---|---|---|
+| `ui/views/Settings.tsx` | Editor de tarifas (editar `costing/config.py` desde UI) | P0 |
+| `ui/lib/types.ts` | Sincronización automática con `api/schemas.py` (manual ahora) | P0 |
+| General | Tests formales con pytest/vitest + aserciones | P0 |
+| `costing/calculator.py` | Tiempo CNC sobreestima (no deduplica cortes compartidos) | P1 |
+| `nesting/` | `dxf_importer.py`: leer formas arbitrarias con `ezdxf` | P1 |
+| `ui/components/canvas/` | Drag & drop piezas + zoom/pan (callbacks sin conectar) | P1 |
+| `ui/views/Projects.tsx` | CRUD persistente de proyectos (sin DB aún) | P1 |
+| `requirements.txt` | Pinear versiones con `==` para reproducibilidad | P1 |
+| `nesting/config.py` | Resolver path `offcuts.json` relativo al CWD | P1 |
+| `ui/views/Designer.tsx` | Preview 3D/2D del mueble (placeholder vacío) | P2 |
+| `ui/views/Dashboard.tsx` | KPIs dinámicos + gráficos de tendencia (hardcoded) | P2 |
+| General | Nesting no-rectangular con formas DXF reales (`pynest2d`) | P3 |
+
+---
+
+# NEXT_STEPS
+
+1. **[P0] Fijar tipos TS ↔ Python:** Generar `ui/src/lib/types.ts` automáticamente desde `api/schemas.py` (script o `openapi-typescript`) para eliminar drift.
+2. **[P0] Agregar pytest + fixtures:** Convertir `test_nesting.py` y `test_costing.py` en suites formales con `assert`; mínimo: nesting de Cabinet básico + breakdown de costos.
+3. **[P0] Settings / tarifas editables:** Exponer `GET/PUT /config/costing` en API; widget en `Settings.tsx` para editar sin tocar código.
+4. **[P1] Persistencia de proyectos:** `POST /projects` + `GET /projects/:id`; almacenar `ProjectResult` serializado en SQLite (`sqlite3` stdlib) o JSON en `data/projects/`.
+5. **[P1] Conectar zoom/pan del canvas:** Pasar handlers desde `Nesting.tsx` a `CanvasToolbar`; implementar scale/offset en `NestingCanvas` con estado local.

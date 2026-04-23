@@ -93,3 +93,25 @@ class PipelineResponse(BaseModel):
     costo: CostDTO
     dxf_path: Optional[str] = None
     warnings: List[str] = Field(default_factory=list)
+
+
+class ProjectMeta(BaseModel):
+    id: str
+    nombre: str
+    created_at: str
+    furniture_tipo: Literal["cabinet", "shelving"]
+    ancho: float
+    alto: float
+    profundidad: float
+
+
+class SavedProject(BaseModel):
+    meta: ProjectMeta
+    spec: FurnitureSpec
+    result: PipelineResponse
+
+
+class SaveProjectRequest(BaseModel):
+    nombre: str
+    spec: FurnitureSpec
+    result: PipelineResponse

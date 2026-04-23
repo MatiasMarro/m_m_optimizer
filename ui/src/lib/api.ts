@@ -1,4 +1,10 @@
-import type { PipelineRequest, PipelineResponse } from "./types";
+import type {
+  FurnitureSpec,
+  PipelineRequest,
+  PipelineResponse,
+  ProjectMeta,
+  SavedProject,
+} from "./types";
 
 export interface OffcutStock {
   id: string;
@@ -32,4 +38,17 @@ export const api = {
     }),
 
   listOffcuts: () => req<OffcutStock[]>("/inventory/offcuts"),
+
+  saveProject: (nombre: string, spec: FurnitureSpec, result: PipelineResponse) =>
+    req<ProjectMeta>("/projects", {
+      method: "POST",
+      body: JSON.stringify({ nombre, spec, result }),
+    }),
+
+  listProjects: () => req<ProjectMeta[]>("/projects"),
+
+  getProject: (id: string) => req<SavedProject>(`/projects/${id}`),
+
+  deleteProject: (id: string) =>
+    req<{ ok: boolean }>(`/projects/${id}`, { method: "DELETE" }),
 };

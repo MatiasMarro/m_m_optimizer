@@ -90,3 +90,19 @@ export interface PipelineResponse {
   dxf_path: string | null;
   warnings: string[];
 }
+
+export interface ProjectMeta {
+  id: string;
+  nombre: string;
+  created_at: string;
+  furniture_tipo: FurnitureType;
+  ancho: number;
+  alto: number;
+  profundidad: number;
+}
+
+export interface SavedProject {
+  meta: ProjectMeta;
+  spec: FurnitureSpec;
+  result: PipelineResponse;
+}
