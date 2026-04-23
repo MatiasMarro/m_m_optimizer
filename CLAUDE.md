@@ -18,9 +18,10 @@
 
 **Completado:**
 - Pipeline completo backend: paramétrico → nesting 2 fases → costos → DXF
-- API REST: health, pipeline/run, inventory/offcuts, CRUD completo de proyectos
-- UI funcional: Designer, Nesting (canvas read-only), Costs, Inventory, Export, Projects (lista + cargar + eliminar)
+- API REST: health, pipeline/run, inventory/offcuts, CRUD completo de proyectos, GET/PUT config/costing
+- UI funcional: Designer, Nesting (canvas read-only), Costs, Inventory, Export, Projects (lista + cargar + eliminar), **Settings (form de tarifas)**
 - Persistencia de proyectos: `data/projects/` con JSON por proyecto, `ProjectMeta` + `SavedProject`
+- Persistencia de tarifas: `data/config.json` — override de `costing/config.py`; `run_pipeline()` lo carga en cada ejecución
 - Guardado desde `Export.tsx` con prompt de nombre; carga desde `Projects.tsx` restaura spec + result
 - **Suite pytest: 25 tests, 25 passed** — `tests/` cubre parametric, nesting, costing, pipeline
 
@@ -38,7 +39,14 @@
 - **`tests/test_nesting.py`** — 7 tests: placement completo, eficiencia, grain_locked sin rotación, offcuts mínimos, pieza imposible → unplaced
 - **`tests/test_costing.py`** — 7 tests: total > 0, total == subtotal + margen, rubros, tapacanto, margen 40%, herrajes
 - **`tests/test_pipeline.py`** — 4 tests: `ProjectResult` completo, warnings es lista, dxf_path None, error propagado
-- **`requirements.txt`** — agregados `pytest==9.0.3` y `pytest-cov==7.1.0` (versiones fijadas con `==`)
+- **`requirements.txt`** — todas las deps fijadas con `==` (rectpack, ezdxf, fastapi, uvicorn, pydantic, pytest, pytest-cov)
+- **`data/config.json`** — CREADO: override de tarifas; si existe, `run_pipeline()` lo usa en lugar de `costing/config.py`
+- **`api/schemas.py`** — agregado `CostingConfig` (Pydantic v2)
+- **`api/server.py`** — agregados `CONFIG_PATH`, `_read_costing_config()`, `GET /config/costing`, `PUT /config/costing`
+- **`main.py`** — `run_pipeline()` lee `data/config.json` via `_read_config()` para instanciar `CostCalculator`; eliminado `calc_default_horas_mo()`
+- **`ui/src/lib/types.ts`** — agregado `CostingConfig` interface
+- **`ui/src/lib/api.ts`** — agregados `getConfig()` y `putConfig()`
+- **`ui/src/views/Settings.tsx`** — form completo: carga tarifas, 8 campos editables, margen como %, Guardar con feedback
 
 ---
 
@@ -65,6 +73,8 @@
 - `[GET] /health` → liveness check
 - `[POST] /pipeline/run` → ejecuta pipeline completo; body: `PipelineRequest`, response: `PipelineResponse`
 - `[GET] /inventory/offcuts` → lista retazos disponibles
+- `[GET] /config/costing` → lee tarifas desde `data/config.json` (fallback a defaults hardcodeados)
+- `[PUT] /config/costing` → escribe `data/config.json`; body y response: `CostingConfig`
 - `[POST] /projects` → guarda proyecto; body: `SaveProjectRequest`, response: `ProjectMeta`
 - `[GET] /projects` → lista todos los `ProjectMeta` (orden desc por `created_at`)
 - `[GET] /projects/{id}` → retorna `SavedProject` completo
@@ -87,17 +97,19 @@ run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, ed
 
 | Constante | Archivo | Propósito |
 |---|---|---|
-| `PRECIO_PLACA_MDF_18 = 45000` | `costing/config.py` | Precio placa nueva ARS |
-| `FACTOR_VALOR_RETAZO = 0.5` | `costing/config.py` | Factor descuento retazo vs placa nueva |
-| `PRECIO_TAPACANTO_M = 800` | `costing/config.py` | $/m tapacanto ARS |
-| `COSTO_HORA_CNC = 8000` | `costing/config.py` | $/h máquina ARS |
-| `COSTO_HORA_MO = 3500` | `costing/config.py` | $/h mano de obra ARS |
-| `MARGEN = 0.40` | `costing/config.py` | Margen sobre subtotal |
+| `PRECIO_PLACA_MDF_18 = 45000` | `costing/config.py` | Fallback hardcodeado (si no existe `data/config.json`) |
+| `FACTOR_VALOR_RETAZO = 0.5` | `costing/config.py` | Fallback hardcodeado |
+| `PRECIO_TAPACANTO_M = 800` | `costing/config.py` | Fallback hardcodeado |
+| `COSTO_HORA_CNC = 8000` | `costing/config.py` | Fallback hardcodeado |
+| `COSTO_HORA_MO = 3500` | `costing/config.py` | Fallback hardcodeado |
+| `MARGEN = 0.40` | `costing/config.py` | Fallback hardcodeado |
+| `data/config.json` | archivo JSON | Override en runtime de todas las tarifas; editable via `PUT /config/costing` |
 | `KERF = 3` | `nesting/config.py` | Ancho de corte mm |
 | `STANDARD_SHEET_W/H = 1830/2440` | `nesting/config.py` | Dimensiones placa estándar mm |
 | `MIN_OFFCUT_SIDE = 200` | `nesting/config.py` | Lado mínimo retazo reutilizable mm |
-| `INVENTORY_PATH = "data/offcuts.json"` | `nesting/config.py` | ⚠️ Relativo al CWD — pendiente fix |
+| `INVENTORY_PATH` | `nesting/config.py` | `Path(__file__).parent.parent / "data/offcuts.json"` (absoluto ✓) |
 | `PROJECTS_DIR` | `api/server.py` | `Path(__file__).parent.parent / "data/projects"` (absoluto ✓) |
+| `CONFIG_PATH` | `api/server.py` | `Path(__file__).parent.parent / "data/config.json"` (absoluto ✓) |
 | CORS origins | `api/server.py` | Hardcoded `localhost:5173` + `127.0.0.1:5173` |
 
 ---
@@ -144,8 +156,8 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 # TODO_STATE
 
 | Módulo | Feature pendiente | Prioridad |
-|---|---|---|
-| `ui/views/Settings.tsx` | Editor de tarifas (`GET/PUT /config/costing` + form) | P0 |
+|---|---|
+| `ui/views/Settings.tsx` | ~~Editor de tarifas (`GET/PUT /config/costing` + form)~~ ✅ DONE | — |
 | `ui/lib/types.ts` | Auto-sync con `api/schemas.py` via `openapi-typescript` | P0 |
 | General | ~~Tests formales pytest + fixtures con `assert`~~ ✅ DONE (25/25) | — |
 | `ui/views/Projects.tsx` | ~~CRUD persistente~~ ✅ DONE | — |
@@ -163,8 +175,6 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 
 # NEXT_STEPS
 
-1. **[P0] Settings / tarifas editables:** Exponer `GET/PUT /config/costing` en `api/server.py`; leer/escribir `costing/config.py` o un `data/config.json` separado; form en `Settings.tsx`.
-2. **[P0] Auto-sync types TS:** Agregar `openapi-typescript` como devDependency; script `npm run gen:types` que llama `openapi-typescript http://localhost:8000/openapi.json -o src/lib/types.ts`.
-3. **[P1] Zoom/pan del canvas:** Estado local `{ scale, offsetX, offsetY }` en `NestingCanvas`; pasar `onZoomIn/onZoomOut/onFit` desde `Nesting.tsx` a `CanvasToolbar`.
-4. **[P1] Pinear todas las deps:** En `requirements.txt` fijar `rectpack`, `ezdxf`, `fastapi`, `uvicorn`, `pydantic` con `==` versión instalada actualmente.
-5. **[P2] Dashboard dinámico:** Leer `data/projects/*.json` y calcular KPIs reales (eficiencia promedio, retazos en stock, proyectos del mes).
+1. **[P0] Auto-sync types TS:** Agregar `openapi-typescript` como devDependency; script `npm run gen:types` que llama `openapi-typescript http://localhost:8000/openapi.json -o src/lib/types.ts`.
+2. **[P1] Zoom/pan del canvas:** Estado local `{ scale, offsetX, offsetY }` en `NestingCanvas`; pasar `onZoomIn/onZoomOut/onFit` desde `Nesting.tsx` a `CanvasToolbar`.
+3. **[P2] Dashboard dinámico:** Leer `data/projects/*.json` y calcular KPIs reales (eficiencia promedio, retazos en stock, proyectos del mes).

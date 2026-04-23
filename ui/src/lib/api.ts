@@ -1,4 +1,5 @@
 import type {
+  CostingConfig,
   FurnitureSpec,
   PipelineRequest,
   PipelineResponse,
@@ -51,4 +52,12 @@ export const api = {
 
   deleteProject: (id: string) =>
     req<{ ok: boolean }>(`/projects/${id}`, { method: "DELETE" }),
+
+  getConfig: () => req<CostingConfig>("/config/costing"),
+
+  putConfig: (cfg: CostingConfig) =>
+    req<CostingConfig>("/config/costing", {
+      method: "PUT",
+      body: JSON.stringify(cfg),
+    }),
 };

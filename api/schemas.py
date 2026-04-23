@@ -115,3 +115,14 @@ class SaveProjectRequest(BaseModel):
     nombre: str
     spec: FurnitureSpec
     result: PipelineResponse
+
+
+class CostingConfig(BaseModel):
+    precio_placa_mdf18: float
+    factor_valor_retazo: float
+    precio_tapacanto_m: float
+    costo_hora_cnc: float
+    velocidad_corte_mm_min: float
+    costo_hora_mo: float
+    horas_mo_default: float
+    margen: float

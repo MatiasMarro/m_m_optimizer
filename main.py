@@ -7,8 +7,10 @@ La CLI (main) es una envoltura fina sobre esa función.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple
 
 from parametric import Cabinet, Furniture, ShelvingUnit
@@ -16,6 +18,15 @@ from nesting import NestingOptimizer, OffcutInventory, DXFExporter, Sheet
 from nesting.config import STANDARD_SHEET_W, STANDARD_SHEET_H
 from nesting.models import Layout, Piece
 from costing import CostBreakdown, CostCalculator, HardwareItem
+import costing.config as cfg_c
+
+_CONFIG_PATH = Path(__file__).parent / "data" / "config.json"
+
+
+def _read_config() -> dict:
+    if _CONFIG_PATH.exists():
+        return json.loads(_CONFIG_PATH.read_text(encoding="utf-8"))
+    return {}
 
 
 # ---------- Política de tapacanto ----------
@@ -79,10 +90,19 @@ def run_pipeline(
         pieces, standard_sheet=sheet, offcuts=offcuts,
     )
 
-    calc = CostCalculator()
+    cfg = _read_config()
+    calc = CostCalculator(
+        precio_placa=cfg.get("precio_placa_mdf18", cfg_c.PRECIO_PLACA_MDF_18),
+        factor_retazo=cfg.get("factor_valor_retazo", cfg_c.FACTOR_VALOR_RETAZO),
+        precio_tapacanto_m=cfg.get("precio_tapacanto_m", cfg_c.PRECIO_TAPACANTO_M),
+        costo_hora_cnc=cfg.get("costo_hora_cnc", cfg_c.COSTO_HORA_CNC),
+        velocidad_corte=cfg.get("velocidad_corte_mm_min", cfg_c.VELOCIDAD_CORTE_MM_MIN),
+        costo_hora_mo=cfg.get("costo_hora_mo", cfg_c.COSTO_HORA_MO),
+        margen=cfg.get("margen", cfg_c.MARGEN),
+    )
     costo = calc.compute(
         layout, pieces,
-        horas_mo=horas_mo if horas_mo is not None else calc_default_horas_mo(),
+        horas_mo=horas_mo if horas_mo is not None else cfg.get("horas_mo_default", cfg_c.HORAS_MO_DEFAULT),
         herrajes=herrajes or [],
     )
 
@@ -104,11 +124,6 @@ def run_pipeline(
         dxf_path=dxf_path if dxf_path else None,
         warnings=warnings,
     )
-
-
-def calc_default_horas_mo() -> float:
-    from costing.config import HORAS_MO_DEFAULT
-    return HORAS_MO_DEFAULT
 
 
 # ---------- CLI ----------

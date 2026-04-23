@@ -1,0 +1,10 @@
+{
+  "precio_placa_mdf18": 45000.0,
+  "factor_valor_retazo": 0.5,
+  "precio_tapacanto_m": 800.0,
+  "costo_hora_cnc": 8000.0,
+  "velocidad_corte_mm_min": 3000.0,
+  "costo_hora_mo": 3500.0,
+  "horas_mo_default": 4.0,
+  "margen": 0.40
+}

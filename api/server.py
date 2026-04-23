@@ -21,6 +21,7 @@ from parametric import Cabinet, ShelvingUnit
 
 from .schemas import (
     CostDTO,
+    CostingConfig,
     LayoutDTO,
     OffcutDTO,
     PieceDTO,
@@ -34,6 +35,24 @@ from .schemas import (
 )
 
 PROJECTS_DIR = Path(__file__).parent.parent / "data" / "projects"
+CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
+
+_COSTING_DEFAULTS: dict = {
+    "precio_placa_mdf18": 45000.0,
+    "factor_valor_retazo": 0.5,
+    "precio_tapacanto_m": 800.0,
+    "costo_hora_cnc": 8000.0,
+    "velocidad_corte_mm_min": 3000.0,
+    "costo_hora_mo": 3500.0,
+    "horas_mo_default": 4.0,
+    "margen": 0.40,
+}
+
+
+def _read_costing_config() -> dict:
+    if CONFIG_PATH.exists():
+        return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+    return dict(_COSTING_DEFAULTS)
 
 app = FastAPI(title="m_m_optimizer API", version="0.1.0")
 
@@ -213,3 +232,15 @@ def _serialize(result) -> PipelineResponse:
         pieces=pieces, layout=layout, costo=costo,
         dxf_path=result.dxf_path, warnings=result.warnings,
     )
+
+
+@app.get("/config/costing", response_model=CostingConfig)
+def get_costing_config():
+    return _read_costing_config()
+
+
+@app.put("/config/costing", response_model=CostingConfig)
+def put_costing_config(cfg: CostingConfig):
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+    return cfg

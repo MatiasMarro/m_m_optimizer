@@ -106,3 +106,14 @@ export interface SavedProject {
   spec: FurnitureSpec;
   result: PipelineResponse;
 }
+
+export interface CostingConfig {
+  precio_placa_mdf18: number;
+  factor_valor_retazo: number;
+  precio_tapacanto_m: number;
+  costo_hora_cnc: number;
+  velocidad_corte_mm_min: number;
+  costo_hora_mo: number;
+  horas_mo_default: number;
+  margen: number;
+}
