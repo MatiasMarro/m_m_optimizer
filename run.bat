@@ -1,5 +1,10 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
+
+:: Directorio raiz del proyecto (donde esta este bat)
+set "ROOT=%~dp0"
+:: Quitar barra final
+if "%ROOT:~-1%"=="\" set "ROOT=%ROOT:~0,-1%"
 
 cls
 echo.
@@ -8,64 +13,59 @@ echo   m_m optimizer CNC - Startup
 echo ========================================
 echo.
 
-echo [*] Verificando Python...
+:: Verificar Python
 python --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Python no encontrado. Descargalo de:
-    echo https://www.python.org/downloads/
-    pause
-    exit /b 1
+    echo [ERROR] Python no encontrado. Descargalo de https://www.python.org/downloads/
+    pause & exit /b 1
 )
-echo [OK] Python found
+echo [OK] Python encontrado
 
-echo [*] Verificando Node.js...
+:: Verificar Node
 node --version >nul 2>&1
 if errorlevel 1 (
-    echo [ERROR] Node.js no encontrado. Descargalo de:
-    echo https://nodejs.org/ (LTS)
-    pause
-    exit /b 1
+    echo [ERROR] Node.js no encontrado. Descargalo de https://nodejs.org/
+    pause & exit /b 1
 )
-echo [OK] Node.js found
+echo [OK] Node.js encontrado
 
-echo.
-echo [*] Preparando entorno...
-
-if not exist "venv" (
+:: Crear venv si no existe
+if not exist "%ROOT%\venv\Scripts\python.exe" (
     echo [*] Creando virtual environment...
-    python -m venv venv
+    python -m venv "%ROOT%\venv"
 )
 
-call venv\Scripts\activate.bat
-
+:: Instalar deps Python
 echo [*] Instalando dependencias Python...
-pip install -q fastapi uvicorn pydantic rectpack ezdxf
+"%ROOT%\venv\Scripts\pip.exe" install -q -r "%ROOT%\requirements.txt"
 
-echo [*] Instalando dependencias Node...
-if not exist "ui\node_modules" (
-    cd ui
-    npm install -q
-    cd ..
+:: Instalar deps Node
+if not exist "%ROOT%\ui\node_modules" (
+    echo [*] Instalando dependencias Node...
+    cd /d "%ROOT%\ui"
+    npm install --silent
+    cd /d "%ROOT%"
 )
 
 echo.
 echo ========================================
-echo   Iniciando servidores...
+echo   Lanzando servidores...
+echo ========================================
+echo   Backend:  http://127.0.0.1:8000
+echo   Frontend: http://localhost:5173
 echo ========================================
 echo.
-echo Backend:  http://127.0.0.1:8000
-echo Frontend: http://localhost:5173
-echo.
-echo Se abriran dos ventanas de consola.
-echo Cierra ambas para detener.
-echo.
-pause
 
-start "Backend" cmd /k "venv\Scripts\activate.bat && uvicorn api.server:app --reload --port 8000"
+:: Backend en ventana nueva
+start "m_m Backend" cmd /k "cd /d "%ROOT%" && "%ROOT%\venv\Scripts\python.exe" -m uvicorn api.server:app --reload --port 8000"
+
+:: Esperar 2 seg y lanzar frontend
 timeout /t 2 /nobreak >nul
-start "Frontend" cmd /k "cd ui && npm run dev"
-timeout /t 3 /nobreak >nul
-start http://localhost:5173
+start "m_m Frontend" cmd /k "cd /d "%ROOT%\ui" && npm run dev"
 
-echo [OK] Servidores iniciados
-pause
+:: Esperar 4 seg y abrir navegador
+timeout /t 4 /nobreak >nul
+start "" "http://localhost:5173"
+
+echo [OK] Servidores en marcha. Podes cerrar esta ventana.
+timeout /t 3 /nobreak >nul

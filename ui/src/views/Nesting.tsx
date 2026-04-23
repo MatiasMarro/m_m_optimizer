@@ -1,6 +1,7 @@
+import { useRef } from "react";
 import { AlertTriangle } from "lucide-react";
 import CanvasToolbar from "@/components/canvas/CanvasToolbar";
-import NestingCanvas from "@/components/canvas/NestingCanvas";
+import NestingCanvas, { type NestingCanvasHandle } from "@/components/canvas/NestingCanvas";
 import InspectorPanel from "@/components/layout/InspectorPanel";
 import { useProject } from "@/store/projectStore";
 
@@ -10,11 +11,16 @@ export default function Nesting() {
   const newOffcuts = result?.layout.new_offcuts ?? [];
   const unplaced = result?.layout.unplaced ?? [];
   const warnings = result?.warnings ?? [];
+  const canvasRef = useRef<NestingCanvasHandle>(null);
 
   return (
     <div className="flex h-full">
       <div className="flex min-w-0 flex-1 flex-col">
-        <CanvasToolbar />
+        <CanvasToolbar
+          onZoomIn={() => canvasRef.current?.zoomIn()}
+          onZoomOut={() => canvasRef.current?.zoomOut()}
+          onFit={() => canvasRef.current?.fit()}
+        />
         {warnings.length > 0 && (
           <div className="flex items-start gap-2 border-b border-warning/40 bg-warning/10 px-4 py-2 text-sm">
             <AlertTriangle size={16} className="mt-0.5 shrink-0 text-warning" />
@@ -29,7 +35,7 @@ export default function Nesting() {
               {error ? <span className="text-danger">{error}</span> : "Sin layout. Optimiza un proyecto primero."}
             </div>
           ) : (
-            <NestingCanvas sheets={sheets} />
+            <NestingCanvas ref={canvasRef} sheets={sheets} />
           )}
         </div>
       </div>

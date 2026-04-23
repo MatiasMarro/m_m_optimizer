@@ -1,9 +1,11 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "node:path";
+import os from "node:os";
 
 export default defineConfig({
   plugins: [react()],
+  cacheDir: path.join(os.tmpdir(), "vite-m_m_optimizer"),
   resolve: {
     alias: { "@": path.resolve(__dirname, "src") },
   },
