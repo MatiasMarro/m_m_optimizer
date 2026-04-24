@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+
+# Virtual env
+venv/
+.venv/
+env/
+
+# Tests / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Runtime data (generado en ejecución, no pertenece al repo)
+data/config.json
+data/offcuts.json
+data/projects/
+
+# Build / output
+output/
+dist/
+build/
+
+# Misc
+image.png
+*.log
+.DS_Store
+Thumbs.db
