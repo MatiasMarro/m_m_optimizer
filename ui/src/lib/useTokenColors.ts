@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useTheme } from "@/store/themeStore";
 
 export interface TokenColors {
   bg: string;
@@ -14,46 +14,35 @@ export interface TokenColors {
   offcut: string;
 }
 
-const VARS: Record<keyof TokenColors, string> = {
-  bg: "--bg",
-  surface: "--surface",
-  surface2: "--surface-2",
-  border: "--border",
-  primary: "--primary",
-  accent: "--accent",
-  text: "--text",
-  textMuted: "--text-muted",
-  pieceGrain: "--piece-grain",
-  pieceFree: "--piece-free",
-  offcut: "--offcut",
+const LIGHT: TokenColors = {
+  bg: "#FAFAF7",
+  surface: "#FFFFFF",
+  surface2: "#F2F1EC",
+  border: "#E3E1DA",
+  primary: "#0E6F5C",
+  accent: "#C9772E",
+  text: "#1A1A1A",
+  textMuted: "#6B6B6B",
+  pieceGrain: "#D4E2D0",
+  pieceFree: "#E8DDC8",
+  offcut: "#B97DD4",
 };
 
-function readTokens(): TokenColors {
-  if (typeof window === "undefined") {
-    return {
-      bg: "#FAFAF7", surface: "#FFFFFF", surface2: "#F2F1EC", border: "#E3E1DA",
-      primary: "#0E6F5C", accent: "#C9772E", text: "#1A1A1A", textMuted: "#6B6B6B",
-      pieceGrain: "#D4E2D0", pieceFree: "#E8DDC8", offcut: "#B97DD4",
-    };
-  }
-  const cs = getComputedStyle(document.documentElement);
-  const out = {} as TokenColors;
-  (Object.keys(VARS) as (keyof TokenColors)[]).forEach((key) => {
-    out[key] = cs.getPropertyValue(VARS[key]).trim();
-  });
-  return out;
-}
+const DARK: TokenColors = {
+  bg: "#0F1115",
+  surface: "#181B21",
+  surface2: "#20242C",
+  border: "#2A2F39",
+  primary: "#1BA88A",
+  accent: "#E89552",
+  text: "#E8E8E6",
+  textMuted: "#8A8F9A",
+  pieceGrain: "#2F4A3A",
+  pieceFree: "#4A3F2F",
+  offcut: "#8E5BAC",
+};
 
 export function useTokenColors(): TokenColors {
-  const [tokens, setTokens] = useState<TokenColors>(() => readTokens());
-
-  useEffect(() => {
-    setTokens(readTokens());
-    const target = document.documentElement;
-    const observer = new MutationObserver(() => setTokens(readTokens()));
-    observer.observe(target, { attributes: true, attributeFilter: ["class", "data-theme", "style"] });
-    return () => observer.disconnect();
-  }, []);
-
-  return tokens;
+  const { theme } = useTheme();
+  return theme === "dark" ? DARK : LIGHT;
 }
