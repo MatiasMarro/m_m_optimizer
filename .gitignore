@@ -40,6 +40,9 @@ ui/**/*.tsbuildinfo
 # Instalador generado (artefactos de Inno Setup)
 installer/output/
 
+# Claude Code local settings
+.claude/
+
 # Misc
 image.png
 *.log
