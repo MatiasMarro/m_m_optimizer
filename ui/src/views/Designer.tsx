@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, FileBox, Play, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, FileBox, Play, Trash2, Upload, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import InspectorPanel from "@/components/layout/InspectorPanel";
 import RoleWizardModal from "@/components/RoleWizardModal";
+import DxfPreview from "@/components/DxfPreview";
 import { useProject } from "@/store/projectStore";
 import { api, type FurnitureItem } from "@/lib/api";
 
@@ -62,16 +64,22 @@ function relativeTime(iso: string | null): string {
 // ─── furniture card ───────────────────────────────────────────────────────────
 
 function FurnitureCard({
-  item, onDelete, onOpenRoles,
+  item, onDelete, onOpenRoles, onOpenPreview,
 }: {
-  item: FurnitureItem; onDelete: () => void; onOpenRoles: () => void;
+  item: FurnitureItem;
+  onDelete: () => void;
+  onOpenRoles: () => void;
+  onOpenPreview: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [thumbError, setThumbError] = useState(false);
   const hasRoles = Object.values(item.piece_roles).some((r) => r !== "");
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface transition-shadow hover:shadow-md">
+    <div
+      onClick={onOpenPreview}
+      className="flex cursor-pointer flex-col overflow-hidden rounded-lg border border-border bg-surface transition-shadow hover:border-primary/40 hover:shadow-md"
+    >
       {/* thumbnail */}
       <div className="relative aspect-square w-full bg-surface-2">
         {thumbError ? (
@@ -118,7 +126,10 @@ function FurnitureCard({
       </div>
 
       {/* actions */}
-      <div className="flex items-center gap-2 border-t border-border px-3 py-2">
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="flex items-center gap-2 border-t border-border px-3 py-2"
+      >
         <Button
           variant="secondary"
           className="flex-1 justify-center text-xs"
@@ -176,6 +187,11 @@ export default function Designer() {
   // ── role wizard modal
   const [wizardItem, setWizardItem] = useState<FurnitureItem | null>(null);
 
+  // ── preview modal
+  const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
+  const selectedFurniture =
+    furnitureList.find((f) => f.furniture_id === selectedFurnitureId) ?? null;
+
   // ── import form
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [importName, setImportName] = useState("");
@@ -188,6 +204,15 @@ export default function Designer() {
   useEffect(() => {
     if (activeTab === "dxf") void loadFurniture();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (!selectedFurnitureId) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelectedFurnitureId(null);
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [selectedFurnitureId]);
 
   async function loadFurniture() {
     setListLoading(true);
@@ -230,6 +255,7 @@ export default function Designer() {
     try {
       await api.deleteFurniture(id);
       setFurnitureList((prev) => prev.filter((f) => f.furniture_id !== id));
+      if (selectedFurnitureId === id) setSelectedFurnitureId(null);
     } catch {
       // ignore — item remains in list
     }
@@ -343,6 +369,7 @@ export default function Designer() {
                       item={item}
                       onDelete={() => void handleDelete(item.furniture_id)}
                       onOpenRoles={() => setWizardItem(item)}
+                      onOpenPreview={() => setSelectedFurnitureId(item.furniture_id)}
                     />
                   ))}
                 </div>
@@ -440,6 +467,55 @@ export default function Designer() {
           onSaved={() => void loadFurniture()}
         />
       )}
+
+      {/* Preview modal */}
+      {selectedFurniture &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setSelectedFurnitureId(null);
+            }}
+            aria-hidden="true"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="dxf-preview-title"
+              className="relative flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
+            >
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div className="min-w-0">
+                  <h2
+                    id="dxf-preview-title"
+                    className="truncate text-sm font-semibold text-text"
+                    title={selectedFurniture.name}
+                  >
+                    {selectedFurniture.name}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-muted">
+                    {selectedFurniture.contours_count} contorno
+                    {selectedFurniture.contours_count !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setSelectedFurnitureId(null)}
+                  aria-label="Cerrar"
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="flex flex-1 items-stretch justify-center overflow-hidden p-4">
+                <DxfPreview
+                  furnitureId={selectedFurniture.furniture_id}
+                  className="aspect-square w-full max-w-[70vh]"
+                />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

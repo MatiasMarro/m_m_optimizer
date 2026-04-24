@@ -27,6 +27,32 @@ export interface FurnitureItem {
   created_at: string | null;
 }
 
+export interface FurniturePiece {
+  id: string;
+  layer: string;
+  role: string;
+  vertices: [number, number][];
+  width: number;
+  height: number;
+  depth: number;
+  quantity: number;
+}
+
+export interface FurnitureDetail extends FurnitureItem {
+  material_thickness: number;
+  pieces: FurniturePiece[];
+}
+
+interface RawFurnitureDetail {
+  furniture_id: string;
+  name: string;
+  thumbnail_url: string;
+  material_thickness: number;
+  version: number;
+  pieces: FurniturePiece[];
+  created_at: string | null;
+}
+
 export interface FurnitureImportResponse {
   furniture_id: string;
   name: string;
@@ -106,6 +132,27 @@ export const api = {
   },
 
   listFurniture: () => req<FurnitureItem[]>("/furniture"),
+
+  getFurniture: async (id: string): Promise<FurnitureDetail> => {
+    const raw = await req<RawFurnitureDetail>(`/furniture/${id}`);
+    const layers: string[] = [];
+    const piece_roles: Record<string, string> = {};
+    for (const p of raw.pieces) {
+      if (!layers.includes(p.layer)) layers.push(p.layer);
+      if (!(p.layer in piece_roles)) piece_roles[p.layer] = p.role ?? "";
+    }
+    return {
+      furniture_id: raw.furniture_id,
+      name: raw.name,
+      thumbnail_url: raw.thumbnail_url,
+      contours_count: raw.pieces.length,
+      layers,
+      piece_roles,
+      created_at: raw.created_at,
+      material_thickness: raw.material_thickness,
+      pieces: raw.pieces,
+    };
+  },
 
   deleteFurniture: (id: string) =>
     req<{ ok: boolean }>(`/furniture/${id}`, { method: "DELETE" }),
