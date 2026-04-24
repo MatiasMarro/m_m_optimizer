@@ -1,3 +1,5 @@
+// Copyright (c) 2024-2026 Matías Marro. All rights reserved.
+// m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 import { useProject } from "@/store/projectStore";
 
 export default function StatusBar() {
@@ -12,6 +14,7 @@ export default function StatusBar() {
       <span>aprov: <b className="text-text">{eff}</b></span>
       <span>placas: <b className="text-text">{sheets}</b></span>
       <span>costo: <b className="text-text">{total}</b></span>
+      <span className="ml-auto opacity-50">© 2026 Matías Marro</span>
     </footer>
   );
 }

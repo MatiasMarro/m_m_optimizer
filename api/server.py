@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Matías Marro. All rights reserved.
+# m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 """FastAPI wrapper sobre `run_pipeline`. Corre en :8000.
 
     uvicorn api.server:app --reload --port 8000
@@ -80,7 +82,12 @@ def _build_furniture(spec):
 
 @app.get("/health")
 def health():
-    return {"ok": True}
+    return {
+        "ok": True,
+        "product": "m_m_optimizer-cnc",
+        "author": "Matías Marro",
+        "copyright": "© 2024-2026 Matías Marro. All rights reserved.",
+    }
 
 
 @app.post("/pipeline/run", response_model=PipelineResponse)

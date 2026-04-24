@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Matías Marro. All rights reserved.
+# m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 """Entry point del optimizador CNC.
 
 Orquesta: parametric → nesting → costing → export DXF.
