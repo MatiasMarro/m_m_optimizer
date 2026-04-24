@@ -90,6 +90,9 @@ app.add_middleware(
 from backend.app.routers.furniture_import import router as furniture_router
 app.include_router(furniture_router)
 
+from backend.app.db import init_db
+init_db()
+
 
 def _build_furniture(spec):
     if spec.tipo == "cabinet":

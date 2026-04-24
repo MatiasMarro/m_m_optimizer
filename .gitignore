@@ -19,6 +19,8 @@ htmlcov/
 data/config.json
 data/offcuts.json
 data/projects/
+data/furniture.db
+data/furniture/
 
 # Build / output
 output/

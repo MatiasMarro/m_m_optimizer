@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import re
+import shutil
 import uuid
 from dataclasses import asdict, is_dataclass
 from pathlib import Path
@@ -12,13 +13,17 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
+from backend.app.db import init_db
 from backend.app.dxf.parser import parse_aspire_dxf
+from backend.app.repositories import furniture_repo
 
 DATA_DIR: Path = Path(__file__).resolve().parents[3] / "data"
 FURNITURE_DIR: Path = DATA_DIR / "furniture"
+
+init_db()
 
 ALLOWED_IMAGE_EXTS: frozenset[str] = frozenset({".jpg", ".jpeg", ".png", ".webp"})
 MAX_IMAGES: int = 5
@@ -129,26 +134,20 @@ def generate_dxf_thumbnail(dxf_path: Path, out_path: Path) -> bool:
         return False
 
 
-def cache_parsed_data(parsed_result, furniture_dir: Path) -> None:
-    """Serializa ParseResult a furniture_dir/parsed.json (silencia errores)."""
-    try:
-        contours = []
-        for c in parsed_result.contours:
-            d = asdict(c) if is_dataclass(c) else dict(c)
-            if "op_type" in d and hasattr(d["op_type"], "value"):
-                d["op_type"] = d["op_type"].value
-            contours.append(d)
-        payload = {
-            "contours": contours,
-            "layer_summary": dict(parsed_result.layer_summary),
-            "unrecognized_entities": list(parsed_result.unrecognized_entities),
-            "warnings": list(parsed_result.warnings),
-        }
-        (furniture_dir / "parsed.json").write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
-        )
-    except Exception:
-        pass
+def _serialize_parsed(parsed_result) -> dict:
+    """Convierte ParseResult a dict serializable en JSON."""
+    contours = []
+    for c in parsed_result.contours:
+        d = asdict(c) if is_dataclass(c) else dict(c)
+        if "op_type" in d and hasattr(d["op_type"], "value"):
+            d["op_type"] = d["op_type"].value
+        contours.append(d)
+    return {
+        "contours": contours,
+        "layer_summary": dict(parsed_result.layer_summary),
+        "unrecognized_entities": list(parsed_result.unrecognized_entities),
+        "warnings": list(parsed_result.warnings),
+    }
 
 
 def _contour_to_preview(c) -> dict:
@@ -208,7 +207,21 @@ async def import_furniture(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No se pudo parsear DXF: {e}")
 
-    cache_parsed_data(parsed, furniture_dir)
+    parsed_payload = _serialize_parsed(parsed)
+    thumbnail_rel = str(thumb_path.relative_to(furniture_dir)) if thumb_path.exists() else None
+
+    try:
+        row = furniture_repo.create_imported_furniture(
+            id=furn_id,
+            name=name,
+            dxf_path=str(dxf_path),
+            thickness=material_thickness,
+            thumbnail_path=thumbnail_rel,
+            parsed_data=parsed_payload,
+        )
+        furniture_repo.upsert_pieces(furn_id, parsed.contours)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error persistiendo en DB: {e}")
 
     warnings.extend(parsed.warnings)
 
@@ -224,6 +237,7 @@ async def import_furniture(
         "pieces_preview": pieces_preview,
         "uploaded_images_count": images_count,
         "warnings": warnings,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
     }
 
 
@@ -236,3 +250,93 @@ async def get_thumbnail(furniture_id: str):
     if not thumb_path.exists():
         raise HTTPException(status_code=404, detail="Thumbnail no encontrado")
     return FileResponse(str(thumb_path), media_type="image/jpeg")
+
+
+@router.get("")
+async def list_furniture() -> list[dict]:
+    """Lista todos los muebles importados (orden desc por created_at)."""
+    rows = furniture_repo.list_imported_furniture()
+    out: list[dict] = []
+    for r in rows:
+        try:
+            parsed = json.loads(r.parsed_data) if r.parsed_data else {}
+        except (TypeError, json.JSONDecodeError):
+            parsed = {}
+        layers = list((parsed.get("layer_summary") or {}).keys())
+        contours_count = len(parsed.get("contours") or [])
+        out.append({
+            "furniture_id": r.id,
+            "name": r.name,
+            "thumbnail_url": f"/api/furniture/{r.id}/thumbnail",
+            "contours_count": contours_count,
+            "layers": layers,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        })
+    return out
+
+
+@router.get("/{furniture_id}")
+async def get_furniture(furniture_id: str) -> dict:
+    """Detalle de un mueble importado con sus piezas."""
+    if not _UUID_RE.match(furniture_id):
+        raise HTTPException(status_code=400, detail="furniture_id inválido")
+    row = furniture_repo.get_imported_furniture(furniture_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Furniture no encontrado")
+
+    pieces_rows = furniture_repo.list_pieces_for(furniture_id)
+    pieces: list[dict] = []
+    for p in pieces_rows:
+        try:
+            vertices = json.loads(p.vertices) if p.vertices else []
+        except (TypeError, json.JSONDecodeError):
+            vertices = []
+        pieces.append({
+            "id": p.id,
+            "layer": p.layer,
+            "role": p.role,
+            "vertices": vertices,
+            "width": p.width,
+            "height": p.height,
+            "depth": p.depth,
+            "quantity": p.quantity,
+        })
+
+    return {
+        "furniture_id": row.id,
+        "name": row.name,
+        "thumbnail_url": f"/api/furniture/{row.id}/thumbnail",
+        "material_thickness": row.material_thickness,
+        "version": row.version,
+        "pieces": pieces,
+        "created_at": row.created_at.isoformat() if row.created_at else None,
+    }
+
+
+@router.put("/{furniture_id}/roles")
+async def put_furniture_roles(
+    furniture_id: str,
+    body: dict = Body(...),
+) -> dict:
+    """Asigna roles (p. ej. 'lateral', 'fondo') a layers de un mueble."""
+    if not _UUID_RE.match(furniture_id):
+        raise HTTPException(status_code=400, detail="furniture_id inválido")
+    roles = body.get("roles") if isinstance(body, dict) else None
+    if not isinstance(roles, dict):
+        raise HTTPException(status_code=422, detail="body.roles debe ser un objeto {layer: role}")
+    ok = furniture_repo.update_piece_roles(furniture_id, roles)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Furniture no encontrado")
+    return {"ok": True}
+
+
+@router.delete("/{furniture_id}")
+async def delete_furniture(furniture_id: str) -> dict:
+    """Elimina DB rows y el directorio data/furniture/{id}/."""
+    if not _UUID_RE.match(furniture_id):
+        raise HTTPException(status_code=400, detail="furniture_id inválido")
+    ok = furniture_repo.delete_imported_furniture(furniture_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Furniture no encontrado")
+    shutil.rmtree(FURNITURE_DIR / furniture_id, ignore_errors=True)
+    return {"ok": True}
