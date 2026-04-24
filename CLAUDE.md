@@ -21,6 +21,7 @@ nesting/exporter.py → DXF
 - `main.py::run_pipeline()` — orquesta todo; es la API de dominio pura
 - `api/server.py` — thin FastAPI wrapper sobre `run_pipeline`; serializa via `api/schemas.py` (Pydantic v2)
 - `ui/` — SPA React; estado efímero en `projectStore` (zustand); tipos en `ui/src/lib/types.ts` (re-exporta `openapi.generated.ts`)
+- `ui/src/lib/nestingUtils.ts` — helpers puros de dominio para drag & drop: `snapToKerf`, `clampToSheet`, `computeSheetOffsets`, `findDropSheet`, `hasCollision`, `piecesCollide`, `previewEfficiency`, `applyDragSnap`, `findNearestValidPosition`, `resolveDropPosition`, `computeSheetEfficiency`
 - Storage: `data/offcuts.json` · `data/projects/{id}.json` · `data/config.json`
 
 ---
@@ -40,7 +41,8 @@ nesting/exporter.py → DXF
 | Types TS auto-generados desde OpenAPI (`npm run gen:types`) | ✅ |
 | Dashboard con KPIs dinámicos (proyectos/mes, eficiencia, retazos) | ✅ |
 | Fix tiempo CNC: deduplicar cortes compartidos (kerf-aware) | ✅ |
-| Drag & drop piezas en canvas | ❌ |
+| kerf configurable desde Settings UI → pipeline | ✅ |
+| Drag & drop piezas: snap kerf, transferencia entre placas, eficiencia en vivo | ✅ |
 | DXF importer (formas arbitrarias) | ❌ |
 | Preview 3D/2D en Designer | ❌ placeholder |
 
@@ -59,7 +61,8 @@ nesting/exporter.py → DXF
 | `ProjectMeta` | `id(uuid[:8])`, `nombre`, `created_at`, `furniture_tipo`, `ancho`, `alto`, `profundidad` |
 | `SavedProject` | `meta`, `spec(FurnitureSpec)`, `result(PipelineResponse)` |
 | `NestingCanvasHandle` | `zoomIn()`, `zoomOut()`, `fit()` — ref via `forwardRef` |
-| `TokenColors` | `bg`, `surface`, `surface2`, `border`, `primary`, `accent`, `text`, `textMuted`, `pieceGrain`, `pieceFree`, `offcut` — hook `useTokenColors()` |
+| `TokenColors` | `bg`, `surface`, `surface2`, `border`, `primary`, `accent`, `danger`, `text`, `textMuted`, `pieceGrain`, `pieceFree`, `offcut` — hook `useTokenColors()` |
+| `DragState` | `fromSheetIdx`, `pieceIdx`, `pieceWidth`, `pieceHeight`, `toSheetIdx`, `collides` — estado interno de NestingCanvas durante drag |
 
 ---
 
@@ -132,6 +135,5 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 | Prioridad | Tarea | Archivo principal |
 |---|---|---|
 | P1 | DXF importer: `ezdxf` → contornos arbitrarios → `Piece` | `nesting/dxf_importer.py` (nuevo) |
-| P1 | Drag & drop canvas: estado mutable del layout en `projectStore` | `NestingCanvas.tsx` · `projectStore.ts` |
 | P2 | Preview 3D/2D en Designer | `ui/src/views/Designer.tsx` |
 | P3 | Nesting no-rectangular con `pynest2d` | `nesting/optimizer.py` |

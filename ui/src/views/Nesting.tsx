@@ -1,17 +1,32 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle } from "lucide-react";
 import CanvasToolbar from "@/components/canvas/CanvasToolbar";
 import NestingCanvas, { type NestingCanvasHandle } from "@/components/canvas/NestingCanvas";
 import InspectorPanel from "@/components/layout/InspectorPanel";
+import { api } from "@/lib/api";
 import { useProject } from "@/store/projectStore";
 
 export default function Nesting() {
-  const { result, error } = useProject();
+  const { result, error, movePiece } = useProject();
   const sheets = result?.layout.sheets_used ?? [];
   const newOffcuts = result?.layout.new_offcuts ?? [];
   const unplaced = result?.layout.unplaced ?? [];
   const warnings = result?.warnings ?? [];
   const canvasRef = useRef<NestingCanvasHandle>(null);
+  const [kerfMm, setKerfMm] = useState<number>(3);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getConfig()
+      .then((c) => {
+        if (!cancelled) setKerfMm(c.kerf_mm);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="flex h-full">
@@ -35,7 +50,12 @@ export default function Nesting() {
               {error ? <span className="text-danger">{error}</span> : "Sin layout. Optimiza un proyecto primero."}
             </div>
           ) : (
-            <NestingCanvas ref={canvasRef} sheets={sheets} />
+            <NestingCanvas
+              ref={canvasRef}
+              sheets={sheets}
+              kerfMm={kerfMm}
+              onMovePiece={movePiece}
+            />
           )}
         </div>
       </div>

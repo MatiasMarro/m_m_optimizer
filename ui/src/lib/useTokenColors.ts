@@ -7,6 +7,7 @@ export interface TokenColors {
   border: string;
   primary: string;
   accent: string;
+  danger: string;
   text: string;
   textMuted: string;
   pieceGrain: string;
@@ -21,6 +22,7 @@ const LIGHT: TokenColors = {
   border: "#E3E1DA",
   primary: "#0E6F5C",
   accent: "#C9772E",
+  danger: "#C14A3C",
   text: "#1A1A1A",
   textMuted: "#6B6B6B",
   pieceGrain: "#D4E2D0",
@@ -35,6 +37,7 @@ const DARK: TokenColors = {
   border: "#2A2F39",
   primary: "#1BA88A",
   accent: "#E89552",
+  danger: "#E06A5A",
   text: "#E8E8E6",
   textMuted: "#8A8F9A",
   pieceGrain: "#2F4A3A",
