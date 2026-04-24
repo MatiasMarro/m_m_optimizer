@@ -36,7 +36,11 @@ nesting/exporter.py → DXF (Mach3)
 
 ## ESTADO ACTUAL
 
-Suite pytest **81/81 ✅**. Todo el backend pipeline, API REST, UI y SQLite persistence completos. Pendiente: Preview 3D/2D en Designer (❌ placeholder).
+Suite pytest **81/81 ✅**. Backend pipeline, API REST, SQLite persistence y UI tab DXF completos.
+- Tab "Desde DXF" en Designer: drop zone → import → grid de FurnitureCards
+- `RoleWizardModal.tsx`: modal por portal, dropdown de roles por layer, badge verde si configurado
+- `GET /api/furniture` devuelve `piece_roles` en cada item
+- Pendiente: Preview 2D vectorial en Designer (❌ placeholder)
 
 ---
 
@@ -55,6 +59,7 @@ Suite pytest **81/81 ✅**. Todo el backend pipeline, API REST, UI y SQLite pers
 | `NestingCanvasHandle` | zoomIn(), zoomOut(), fit() — forwardRef |
 | `TokenColors` | bg, surface, surface2, border, primary, accent, danger, text, textMuted, pieceGrain, pieceFree, offcut — hook `useTokenColors()` |
 | `DragState` | fromSheetIdx, pieceIdx, pieceWidth, pieceHeight, toSheetIdx, collides |
+| `FurnitureItem` | furniture_id, name, thumbnail_url, contours_count, layers[], piece_roles{layer:role}, created_at |
 | `OperationType` | PROFILE(Z≈thickness), POCKET(0<Z<thickness), DRILL(Z>0), GROOVE, REFERENCE |
 | `ParsedContour` | layer, op_type, vertices[], bbox, width, height, depth, tool_diameter?, is_through_cut |
 | `ParseResult` | contours[], layer_summary{}, unrecognized_entities[], warnings[] |
@@ -125,8 +130,8 @@ cd ui && npm run gen:types    # regenera tipos TS (requiere backend en :8000)
 
 | Prior | Tarea | Archivo principal |
 |---|---|---|
-| P1 | UI import: zona drag DXF → lista muebles + thumbnail | `ui/src/views/Designer.tsx` |
-| P1 | Wizard roles por layer (modal, llama PUT /roles) | `ui/src/` nuevo modal |
+| ~~P1~~ | ~~UI import: drag DXF + thumbnail + grid~~ | ✅ `ui/src/views/Designer.tsx` |
+| ~~P1~~ | ~~Wizard roles por layer~~ | ✅ `ui/src/components/RoleWizardModal.tsx` |
 | ~~P1 deuda~~ | ~~Corregir `DATA_DIR` en `db.py`~~ | ✅ `backend/app/db.py` |
-| P2 | Preview 3D/2D en Designer | `ui/src/views/Designer.tsx` |
+| P2 | Preview 2D vectorial SVG en Designer | `ui/src/components/DxfPreview.tsx` (nuevo) |
 | P3 | Nesting no-rectangular con `pynest2d` | `nesting/optimizer.py` |
