@@ -232,13 +232,13 @@ export const findNearestValidPosition = (
   excludePieceIdx: number | null,
   kerf: number,
 ): { x: number; y: number } | null => {
-  const step = Math.max(kerf, 1);
+  const step = 1;
   const maxX = sheet.sheet_width - pieceW;
   const maxY = sheet.sheet_height - pieceH;
   if (maxX < 0 || maxY < 0) return null;
 
-  const startX = Math.max(0, Math.min(snapToKerf(targetX, step), maxX));
-  const startY = Math.max(0, Math.min(snapToKerf(targetY, step), maxY));
+  const startX = Math.max(0, Math.min(targetX, maxX));
+  const startY = Math.max(0, Math.min(targetY, maxY));
 
   const test = (x: number, y: number): { x: number; y: number } | null => {
     const piece: Rect = { x, y, width: pieceW, height: pieceH };
@@ -305,8 +305,8 @@ export const resolveDropPosition = (
     kerf,
     snapThreshold,
   });
-  const localX = snapToKerf(snapped.worldX - sheetOffsetX, kerf);
-  const localY = snapToKerf(snapped.worldY, kerf);
+  const localX = snapped.worldX - sheetOffsetX;
+  const localY = snapped.worldY;
   const clamped = clampToSheet(
     localX,
     localY,
