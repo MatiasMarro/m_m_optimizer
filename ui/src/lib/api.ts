@@ -17,6 +17,28 @@ export interface OffcutStock {
   is_offcut: boolean;
 }
 
+export interface FurnitureItem {
+  furniture_id: string;
+  name: string;
+  thumbnail_url: string;
+  contours_count: number;
+  layers: string[];
+  created_at: string | null;
+}
+
+export interface FurnitureImportResponse {
+  furniture_id: string;
+  name: string;
+  thumbnail_url: string;
+  dxf_filename: string;
+  contours_count: number;
+  layers: string[];
+  pieces_preview: unknown[];
+  uploaded_images_count: number;
+  warnings: string[];
+  created_at: string | null;
+}
+
 const BASE = "/api";
 
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
@@ -62,4 +84,29 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(cfg),
     }),
+
+  // ── furniture (multipart — sin Content-Type fijo para que el browser setee el boundary) ──
+
+  importFurniture: async (
+    name: string,
+    thickness: number,
+    dxfFile: File,
+  ): Promise<FurnitureImportResponse> => {
+    const fd = new FormData();
+    fd.append("name", name);
+    fd.append("material_thickness", String(thickness));
+    fd.append("dxf_file", dxfFile, dxfFile.name);
+    const res = await fetch(`${BASE}/furniture/import`, { method: "POST", body: fd });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(`${res.status} ${res.statusText}: ${body}`);
+    }
+    return res.json() as Promise<FurnitureImportResponse>;
+  },
+
+  listFurniture: () => req<FurnitureItem[]>("/furniture"),
+
+  deleteFurniture: (id: string) =>
+    req<{ ok: boolean }>(`/furniture/${id}`, { method: "DELETE" }),
 };
+
