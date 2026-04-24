@@ -1,5 +1,6 @@
 from typing import List, Optional
 
+from nesting.config import KERF
 from nesting.models import Layout, Piece
 
 from . import config as cfg
@@ -22,6 +23,7 @@ class CostCalculator:
         velocidad_corte: float = cfg.VELOCIDAD_CORTE_MM_MIN,
         costo_hora_mo: float = cfg.COSTO_HORA_MO,
         margen: float = cfg.MARGEN,
+        kerf: float = KERF,
     ):
         self.precio_placa = precio_placa
         self.factor_retazo = factor_retazo
@@ -30,6 +32,7 @@ class CostCalculator:
         self.velocidad_corte = velocidad_corte
         self.costo_hora_mo = costo_hora_mo
         self.margen = margen
+        self.kerf = kerf
 
     def compute(
         self,
@@ -86,13 +89,42 @@ class CostCalculator:
         b.tapacanto = metros * self.precio_tapacanto_m
 
     def _costear_cnc(self, layout: Layout, b: CostBreakdown) -> None:
-        # Aproximación: longitud de corte = suma de perímetros de piezas colocadas.
-        # Sobreestima (los cortes adyacentes se comparten) pero es conservador.
-        perim_mm = sum(
-            2 * (pl.width + pl.height)
-            for u in layout.sheets_used
-            for pl in u.placements
-        )
+        # Longitud de corte = suma de perímetros menos cortes compartidos entre
+        # piezas adyacentes (separadas exactamente por `kerf`): ese borde se
+        # recorre una sola vez, no dos.
+        tol = 1e-3  # mm
+        perim_mm = 0.0
+
+        for u in layout.sheets_used:
+            pls = u.placements
+            for pl in pls:
+                perim_mm += 2.0 * (pl.width + pl.height)
+
+            n = len(pls)
+            for i in range(n):
+                for j in range(i + 1, n):
+                    a, c = pls[i], pls[j]
+
+                    # Adyacencia horizontal: a está a la izquierda de c
+                    if abs((a.x + a.width + self.kerf) - c.x) < tol:
+                        overlap = min(a.y + a.height, c.y + c.height) - max(a.y, c.y)
+                        if overlap > tol:
+                            perim_mm -= overlap
+                    elif abs((c.x + c.width + self.kerf) - a.x) < tol:
+                        overlap = min(a.y + a.height, c.y + c.height) - max(a.y, c.y)
+                        if overlap > tol:
+                            perim_mm -= overlap
+
+                    # Adyacencia vertical: a está debajo de c
+                    if abs((a.y + a.height + self.kerf) - c.y) < tol:
+                        overlap = min(a.x + a.width, c.x + c.width) - max(a.x, c.x)
+                        if overlap > tol:
+                            perim_mm -= overlap
+                    elif abs((c.y + c.height + self.kerf) - a.y) < tol:
+                        overlap = min(a.x + a.width, c.x + c.width) - max(a.x, c.x)
+                        if overlap > tol:
+                            perim_mm -= overlap
+
         minutos = perim_mm / self.velocidad_corte if self.velocidad_corte else 0.0
         b.minutos_cnc = minutos
         b.tiempo_cnc = (minutos / 60.0) * self.costo_hora_cnc

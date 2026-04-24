@@ -35,9 +35,10 @@ nesting/exporter.py → DXF
 | Canvas: zoom/pan/fit (wheel + botones + auto-fit) | ✅ |
 | Persistencia proyectos (`data/projects/`) | ✅ |
 | Persistencia tarifas (`data/config.json`) | ✅ |
-| Suite pytest 25/25 | ✅ |
+| Suite pytest 27/27 | ✅ |
 | Types TS auto-generados desde OpenAPI (`npm run gen:types`) | ✅ |
 | Dashboard con KPIs dinámicos (proyectos/mes, eficiencia, retazos) | ✅ |
+| Fix tiempo CNC: deduplicar cortes compartidos (kerf-aware) | ✅ |
 | Drag & drop piezas en canvas | ❌ |
 | DXF importer (formas arbitrarias) | ❌ |
 | Preview 3D/2D en Designer | ❌ placeholder |
@@ -130,6 +131,5 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 |---|---|---|
 | P1 | DXF importer: `ezdxf` → contornos arbitrarios → `Piece` | `nesting/dxf_importer.py` (nuevo) |
 | P1 | Drag & drop canvas: estado mutable del layout en `projectStore` | `NestingCanvas.tsx` · `projectStore.ts` |
-| P1 | Fix tiempo CNC: deduplicar cortes compartidos entre piezas | `costing/calculator.py` |
 | P2 | Preview 3D/2D en Designer | `ui/src/views/Designer.tsx` |
 | P3 | Nesting no-rectangular con `pynest2d` | `nesting/optimizer.py` |
