@@ -25,7 +25,7 @@ nesting/exporter.py → DXF (Mach3)
 
 - `main.py::run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, edging_policy, dxf_path) → ProjectResult`
 - `backend/app/dxf/parser.py` — `parse_aspire_dxf(path, thickness) → ParseResult`; clasifica layers por keywords + geometría → OperationType
-- `backend/app/db.py` — SQLAlchemy 2.0; `ImportedFurniture` + `ImportedPiece`; `init_db()` idempotente; `data/furniture.db` ⚠️ `DATA_DIR` no respeta `MM_DATA_DIR` env
+- `backend/app/db.py` — SQLAlchemy 2.0; `ImportedFurniture` + `ImportedPiece`; `init_db()` idempotente; `data/furniture.db`; respeta `MM_DATA_DIR` env (modo .exe)
 - `backend/app/repositories/furniture_repo.py` — session-per-operation; create/get/list/update_roles/delete/upsert_pieces + `list_pieces_for`; `_session()` vía `db_module.SessionLocal` (monkeypatcheable)
 - `backend/app/routers/furniture_import.py` — POST import + CRUD; thumbnail JPEG 200×200; tests usan StaticPool :memory:
 - `api/server.py` — FastAPI app; monta `furniture_router`; llama `init_db()`; CORS `localhost:5173`; serializa via `api/schemas.py` (Pydantic v2)
@@ -127,6 +127,6 @@ cd ui && npm run gen:types    # regenera tipos TS (requiere backend en :8000)
 |---|---|---|
 | P1 | UI import: zona drag DXF → lista muebles + thumbnail | `ui/src/views/Designer.tsx` |
 | P1 | Wizard roles por layer (modal, llama PUT /roles) | `ui/src/` nuevo modal |
-| P1 deuda | Corregir `DATA_DIR` en `db.py` → respetar `MM_DATA_DIR` (.exe) | `backend/app/db.py` |
+| ~~P1 deuda~~ | ~~Corregir `DATA_DIR` en `db.py`~~ | ✅ `backend/app/db.py` |
 | P2 | Preview 3D/2D en Designer | `ui/src/views/Designer.tsx` |
 | P3 | Nesting no-rectangular con `pynest2d` | `nesting/optimizer.py` |

@@ -5,12 +5,18 @@ Usa SQLite en data/furniture.db. `init_db()` es idempotente (create_all).
 from __future__ import annotations
 
 import datetime
+import os
 from pathlib import Path
 
 from sqlalchemy import Column, DateTime, Float, Integer, String, Text, create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+# Respeta MM_DATA_DIR (modo .exe / PyInstaller). Fallback: data/ relativo a la raíz del repo.
+DATA_DIR = (
+    Path(os.environ["MM_DATA_DIR"])
+    if "MM_DATA_DIR" in os.environ
+    else Path(__file__).resolve().parents[2] / "data"
+)
 
 engine = create_engine(
     f"sqlite:///{DATA_DIR}/furniture.db",
