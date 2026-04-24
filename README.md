@@ -1,78 +1,145 @@
-# m_m optimizer — CNC Nesting Automation
+# 🪵 m_m_optimizer
 
-Capa inteligente sobre Mach3 + Vectric Aspire para automatizar nesting 2D, cálculo de costos y generación de G-code.
+> **CNC Nesting Optimizer for Woodworking** — Automated 2D layout optimization, cost calculation, and DXF export for Mach3 + Vectric Aspire
 
-**Estado:** Humo funcional (backend + UI básica).
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue?logo=python&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6?logo=typescript&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.11x-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-18-61dafb?logo=react&logoColor=black)
+![License](https://img.shields.io/badge/license-All%20rights%20reserved-lightgrey)
+
+---
+
+## Overview
+
+**m_m_optimizer** is an intelligent automation layer on top of Mach3 + Vectric Aspire that transforms furniture dimensions into optimized CNC-ready files in seconds. Define a cabinet or shelving unit, and the system automatically generates all pieces, nests them onto sheets, calculates full job costs, and exports a DXF ready to load in Aspire — no manual layout work required.
+
+It solves a real workshop problem: manually arranging pieces on MDF sheets wastes material, takes time, and makes cost estimation error-prone. m_m_optimizer automates the entire pipeline from parametric design to DXF export, with a React UI for interactive adjustments and a full REST API for integration.
+
+---
+
+## Features
+
+- ✨ **Parametric furniture design** — Cabinet and ShelvingUnit generators with configurable dimensions
+- 📐 **2D nesting optimization** — MaxRects BSSF algorithm via `rectpack` for maximum material efficiency
+- 💰 **Automatic cost breakdown** — Materials, edge banding, CNC time, labor, hardware, and margin
+- ♻️ **Offcut inventory management** — Tracks reusable remnants and feeds them back into future jobs
+- 📤 **DXF export for Aspire** — Organized layers: `PIEZAS`, `ETIQUETAS`, `RETAZOS`
+- 🎨 **Interactive React UI** — Canvas with drag & drop, zoom/pan, and live efficiency preview
+- ⚙️ **Configurable pricing** — Edit rates from the Settings UI; persisted in `data/config.json`
+- 💾 **Project persistence** — Save and reload full project snapshots
+
+---
+
+## Tech Stack
+
+**Backend:**
+- Python 3.11+ · FastAPI · Pydantic v2
+- `rectpack` — 2D nesting engine
+- `ezdxf` — DXF generation
+
+**Frontend:**
+- React 18 · TypeScript · Vite
+- Tailwind CSS · Lucide icons
+- Konva — interactive 2D canvas
+- zustand — state management
+
+---
 
 ## Quick Start
 
-### Windows
-
-#### Opción 1: Automático (recomendado)
-1. **Doble click `run.bat`**
-2. Espera a que se levante el backend
-3. El navegador se abre automáticamente en http://localhost:5173
-
-Si falla, intenta Opción 2.
-
-#### Opción 2: Con diagnostics
-1. **Doble click `check.bat`** — verifica Python + Node
-2. Si todo OK → **Doble click `run_debug.bat`** para ver errores
-3. Pegame el error si persiste
-
-### Mac / Linux
+**Windows (Automated):**
 ```bash
-# Terminal 1: Backend
-python -m venv venv && source venv/bin/activate
+# Double-click run.bat — backend starts and browser opens automatically
+run.bat
+```
+
+**Manual Setup:**
+```bash
+# Backend
+python -m venv venv
+venv\Scripts\activate        # or: source venv/bin/activate  (Mac/Linux)
 pip install -r requirements.txt
 uvicorn api.server:app --reload --port 8000
 
-# Terminal 2: Frontend
-cd ui && npm install && npm run dev
+# Frontend (separate terminal)
+cd ui
+npm install
+npm run dev
 ```
 
-Luego abre **http://localhost:5173**
+Then open **http://localhost:5173**
 
-## Docs
+---
 
-- **[SETUP.md](./SETUP.md)** — instrucciones detalladas de instalación y troubleshooting
-- **[CLAUDE.md](./CLAUDE.md)** — arquitectura del proyecto, estado actual, pendientes
-- **[docs/lepton.md](./docs/lepton.md)** — referencia de funcionalidades Lepton Optimizer
-
-## Stack
-
-### Backend
-- **Python 3.11+** · FastAPI · Pydantic
-- **nesting/** — optimizador 2D (rectpack MaxRectsBssf)
-- **parametric/** — generador de piezas (Cabinet, ShelvingUnit)
-- **costing/** — cálculo de costos ARS
-- **api/** — REST wrapper
-
-### Frontend
-- **React 18** · TypeScript · Vite
-- **Tailwind CSS** · Lucide icons
-- **Konva** (react-konva) — canvas 2D con drag & drop (WIP)
-- **zustand** — state management
-
-## Flujo actual
+## Project Structure
 
 ```
-Diseño paramétrico → Piezas → Nesting → Costos → Exportar DXF
+m_m_optimizer/
+├── parametric/      # Furniture design generators (Cabinet, ShelvingUnit)
+├── nesting/         # 2D optimization engine (MaxRects BSSF)
+├── costing/         # Cost calculation module
+├── api/             # FastAPI REST wrapper
+├── ui/              # React + TypeScript frontend
+├── data/            # Projects, offcuts inventory, config
+├── tests/           # pytest suite (27/27 passing)
+└── main.py          # CLI entry point
 ```
 
-1. **Diseñador**: Cabinet/ShelvingUnit con dims
-2. **Nesting**: optimización 2D en placas, gestión de retazos
-3. **Costos**: breakdown material, tapacanto, CNC, MO, herrajes
-4. **Exportar**: DXF compatible con Aspire (capas: PIEZAS, ETIQUETAS, RETAZOS)
+---
 
-## Próximos pasos
+## Workflow
 
-- [ ] Drag & drop de piezas en canvas
-- [ ] DXF Importer (formas arbitrarias)
-- [ ] Editor de tarifas (UI Settings → costing config)
-- [ ] Persistencia de proyectos (DB básica)
-- [ ] Nesting no-rectangular (pynest2d)
+```
+Parametric Design → Nesting → Cost Calculation → DXF Export
+       ↓               ↓             ↓                ↓
+    Pieces         Optimized      Breakdown       Aspire-ready
+    + Holes          Layout         (ARS)           (layers)
+```
 
-## Contacto
+---
+
+## API
+
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/pipeline/run` | Execute the full pipeline |
+| `GET` | `/projects` | List saved projects |
+| `GET` | `/inventory/offcuts` | List available offcuts |
+| `GET/PUT` | `/config/costing` | Manage pricing configuration |
+
+---
+
+## Documentation
+
+- 📖 [SETUP.md](./SETUP.md) — Detailed installation and troubleshooting
+- 🏗️ [CLAUDE.md](./CLAUDE.md) — Architecture, current state, and roadmap
+- 📚 [docs/lepton.md](./docs/lepton.md) — Lepton Optimizer feature reference
+
+---
+
+## Roadmap
+
+- [ ] DXF Importer (arbitrary shapes)
+- [ ] 3D/2D preview in Designer
+- [ ] Non-rectangular nesting (`pynest2d`)
+- [ ] Database persistence
+- [ ] Multi-user support
+
+---
+
+## Contributing
+
+Issues and pull requests are welcome. Feel free to open an issue to discuss a feature or bug before submitting a PR.
+
+---
+
+## License
+
+All rights reserved © Matias Marro
+
+---
+
+## Contact
 
 m.m.caseros.386@gmail.com
