@@ -264,12 +264,17 @@ async def list_furniture() -> list[dict]:
             parsed = {}
         layers = list((parsed.get("layer_summary") or {}).keys())
         contours_count = len(parsed.get("contours") or [])
+        try:
+            piece_roles = json.loads(r.piece_roles) if r.piece_roles else {}
+        except (TypeError, json.JSONDecodeError):
+            piece_roles = {}
         out.append({
             "furniture_id": r.id,
             "name": r.name,
             "thumbnail_url": f"/api/furniture/{r.id}/thumbnail",
             "contours_count": contours_count,
             "layers": layers,
+            "piece_roles": piece_roles,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         })
     return out

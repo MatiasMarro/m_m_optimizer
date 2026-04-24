@@ -23,6 +23,7 @@ export interface FurnitureItem {
   thumbnail_url: string;
   contours_count: number;
   layers: string[];
+  piece_roles: Record<string, string>;
   created_at: string | null;
 }
 
@@ -108,5 +109,11 @@ export const api = {
 
   deleteFurniture: (id: string) =>
     req<{ ok: boolean }>(`/furniture/${id}`, { method: "DELETE" }),
+
+  updateFurnitureRoles: (id: string, roles: Record<string, string>) =>
+    req<{ ok: boolean }>(`/furniture/${id}/roles`, {
+      method: "PUT",
+      body: JSON.stringify({ roles }),
+    }),
 };
 

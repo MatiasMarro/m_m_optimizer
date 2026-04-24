@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FileBox, Play, Trash2, Upload } from "lucide-react";
+import { CheckCircle2, FileBox, Play, Trash2, Upload } from "lucide-react";
 import Button from "@/components/ui/Button";
 import InspectorPanel from "@/components/layout/InspectorPanel";
+import RoleWizardModal from "@/components/RoleWizardModal";
 import { useProject } from "@/store/projectStore";
 import { api, type FurnitureItem } from "@/lib/api";
 
@@ -61,12 +62,13 @@ function relativeTime(iso: string | null): string {
 // ─── furniture card ───────────────────────────────────────────────────────────
 
 function FurnitureCard({
-  item, onDelete,
+  item, onDelete, onOpenRoles,
 }: {
-  item: FurnitureItem; onDelete: () => void;
+  item: FurnitureItem; onDelete: () => void; onOpenRoles: () => void;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [thumbError, setThumbError] = useState(false);
+  const hasRoles = Object.values(item.piece_roles).some((r) => r !== "");
 
   return (
     <div className="flex flex-col overflow-hidden rounded-lg border border-border bg-surface transition-shadow hover:shadow-md">
@@ -117,7 +119,14 @@ function FurnitureCard({
 
       {/* actions */}
       <div className="flex items-center gap-2 border-t border-border px-3 py-2">
-        <Button variant="secondary" className="flex-1 justify-center text-xs" disabled>
+        <Button
+          variant="secondary"
+          className="flex-1 justify-center text-xs"
+          onClick={onOpenRoles}
+        >
+          {hasRoles && (
+            <CheckCircle2 size={12} className="text-success" />
+          )}
           Asignar roles
         </Button>
         {confirmDelete ? (
@@ -163,6 +172,9 @@ export default function Designer() {
   // ── dxf list
   const [furnitureList, setFurnitureList] = useState<FurnitureItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
+
+  // ── role wizard modal
+  const [wizardItem, setWizardItem] = useState<FurnitureItem | null>(null);
 
   // ── import form
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -330,6 +342,7 @@ export default function Designer() {
                       key={item.furniture_id}
                       item={item}
                       onDelete={() => void handleDelete(item.furniture_id)}
+                      onOpenRoles={() => setWizardItem(item)}
                     />
                   ))}
                 </div>
@@ -415,6 +428,18 @@ export default function Designer() {
           )}
         </InspectorPanel>
       </div>
+
+      {/* Role wizard modal */}
+      {wizardItem && (
+        <RoleWizardModal
+          furnitureId={wizardItem.furniture_id}
+          furnitureName={wizardItem.name}
+          layers={wizardItem.layers}
+          initialRoles={wizardItem.piece_roles}
+          onClose={() => setWizardItem(null)}
+          onSaved={() => void loadFurniture()}
+        />
+      )}
     </div>
   );
 }
