@@ -25,6 +25,19 @@ output/
 dist/
 build/
 
+# PyInstaller
+*.spec.bak
+__pycache__/launcher*
+
+# Frontend build
+ui/dist/
+ui/**/*.js
+ui/**/*.d.ts
+ui/**/*.tsbuildinfo
+
+# Instalador generado (artefactos de Inno Setup)
+installer/output/
+
 # Misc
 image.png
 *.log

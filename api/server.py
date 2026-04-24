@@ -3,10 +3,14 @@
 """FastAPI wrapper sobre `run_pipeline`. Corre en :8000.
 
     uvicorn api.server:app --reload --port 8000
+
+En modo .exe, también sirve el build estático de React desde ui/dist/.
 """
 from __future__ import annotations
 
 import json
+import os
+import sys
 import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
@@ -15,6 +19,8 @@ from typing import List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from costing import HardwareItem
 from main import run_pipeline
@@ -38,6 +44,20 @@ from .schemas import (
 
 PROJECTS_DIR = Path(__file__).parent.parent / "data" / "projects"
 CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
+
+# Cuando se ejecuta como .exe empaquetado con PyInstaller, los archivos
+# estáticos viven en sys._MEIPASS. En desarrollo usan la ruta normal.
+def _base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    return Path(__file__).parent.parent
+
+_UI_DIST = _base_dir() / "ui" / "dist"
+
+# Si el launcher sobreescribió MM_DATA_DIR (modo exe), usarlo para data mutable.
+_data_root = Path(os.environ["MM_DATA_DIR"]) if "MM_DATA_DIR" in os.environ else Path(__file__).parent.parent / "data"
+PROJECTS_DIR = _data_root / "projects"
+CONFIG_PATH = _data_root / "config.json"
 
 _COSTING_DEFAULTS: dict = {
     "precio_placa_mdf18": 45000.0,
@@ -252,3 +272,19 @@ def put_costing_config(cfg: CostingConfig):
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     CONFIG_PATH.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
     return cfg
+
+
+# ---------------------------------------------------------------------------
+# Static files + SPA catch-all (activo solo cuando ui/dist existe)
+# En desarrollo, Vite corre en :5173 y este bloque no interfiere.
+# En el .exe, sirve el build de React directamente desde FastAPI.
+# ---------------------------------------------------------------------------
+if _UI_DIST.exists():
+    # Archivos estáticos de Vite (assets JS/CSS)
+    app.mount("/assets", StaticFiles(directory=str(_UI_DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        """Devuelve index.html para cualquier ruta no-API (SPA routing)."""
+        index = _UI_DIST / "index.html"
+        return FileResponse(str(index))

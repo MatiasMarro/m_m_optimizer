@@ -5,3 +5,5 @@ uvicorn[standard]==0.45.0
 pydantic==2.13.3
 pytest==9.0.3
 pytest-cov==7.1.0
+# Empaquetado en .exe (solo para builds, no requerido en dev)
+pyinstaller>=6.0
