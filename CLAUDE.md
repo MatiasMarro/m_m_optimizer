@@ -2,7 +2,7 @@
 
 Automatización CNC para carpintería: nesting 2D, costos y exportación DXF sobre Mach3 + Vectric Aspire.
 
-**Stack:** Python 3.11 · FastAPI · rectpack · ezdxf · matplotlib · Pillow · React 18 · TypeScript · Vite · Konva · zustand · Tailwind CSS
+**Stack:** Python 3.11 · FastAPI · SQLAlchemy 2.0 · SQLite · rectpack · ezdxf · matplotlib · Pillow · React 18 · TypeScript · Vite · Konva · zustand · Tailwind CSS
 
 ---
 
@@ -12,7 +12,7 @@ Automatización CNC para carpintería: nesting 2D, costos y exportación DXF sob
 DXF (Aspire) → backend/app/dxf/parser.py → ParsedContour[]
     ↓
 backend/app/routers/furniture_import.py → POST /api/furniture/import
-    (guarda DXF + imágenes, genera thumbnail JPEG, cachea parsed.json)
+    (guarda DXF + imágenes, genera thumbnail JPEG, persiste en SQLite via repo)
 
 parametric/ → [Piece+Hole[]]
     ↓
@@ -23,36 +23,20 @@ costing/calculator.py → CostBreakdown
 nesting/exporter.py → DXF (Mach3)
 ```
 
-- `main.py::run_pipeline()` — orquesta todo; es la API de dominio pura
-- `backend/app/dxf/parser.py` — `parse_aspire_dxf(filepath, material_thickness) → ParseResult`; extrae Z desde entity.elevation o vértices; clasifica por layer keywords + geometría (PROFILE/POCKET/DRILL/GROOVE/REFERENCE)
-- `backend/app/routers/furniture_import.py` — router FastAPI `POST /api/furniture/import`; recibe DXF + imágenes (multipart), valida, parsea, genera thumbnail con matplotlib/ezdxf.addons.drawing, cachea en `data/furniture/{id}/parsed.json`
-- `api/server.py` — thin FastAPI wrapper sobre `run_pipeline` + monta routers de `backend/`; serializa via `api/schemas.py` (Pydantic v2)
-- `ui/` — SPA React; estado efímero en `projectStore` (zustand); tipos en `ui/src/lib/types.ts` (re-exporta `openapi.generated.ts`)
-- `ui/src/lib/nestingUtils.ts` — helpers puros de dominio para drag & drop: `snapToKerf`, `clampToSheet`, `computeSheetOffsets`, `findDropSheet`, `hasCollision`, `piecesCollide`, `previewEfficiency`, `applyDragSnap`, `findNearestValidPosition`, `resolveDropPosition`, `computeSheetEfficiency`
-- Storage: `data/offcuts.json` · `data/projects/{id}.json` · `data/config.json` · `data/furniture/{id}/` (original.dxf, thumb.jpg, parsed.json, ref_NN.ext)
+- `main.py::run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, edging_policy, dxf_path) → ProjectResult`
+- `backend/app/dxf/parser.py` — `parse_aspire_dxf(path, thickness) → ParseResult`; clasifica layers por keywords + geometría → OperationType
+- `backend/app/db.py` — SQLAlchemy 2.0; `ImportedFurniture` + `ImportedPiece`; `init_db()` idempotente; `data/furniture.db` ⚠️ `DATA_DIR` no respeta `MM_DATA_DIR` env
+- `backend/app/repositories/furniture_repo.py` — session-per-operation; create/get/list/update_roles/delete/upsert_pieces + `list_pieces_for`; `_session()` vía `db_module.SessionLocal` (monkeypatcheable)
+- `backend/app/routers/furniture_import.py` — POST import + CRUD; thumbnail JPEG 200×200; tests usan StaticPool :memory:
+- `api/server.py` — FastAPI app; monta `furniture_router`; llama `init_db()`; CORS `localhost:5173`; serializa via `api/schemas.py` (Pydantic v2)
+- `ui/src/lib/nestingUtils.ts` — helpers drag & drop: `snapToKerf`, `clampToSheet`, `hasCollision`, `piecesCollide`, `resolveDropPosition`, etc.
+- Storage: `data/offcuts.json` · `data/projects/{id}.json` · `data/config.json` · `data/furniture.db` · `data/furniture/{id}/` (original.dxf, thumb.jpg, ref_NN.ext)
 
 ---
 
 ## ESTADO ACTUAL
 
-| Módulo | Estado |
-|---|---|
-| Backend pipeline completo (parametric→nesting→costing→DXF) | ✅ |
-| API REST completa (health, pipeline, offcuts, projects CRUD, config) | ✅ |
-| UI: Designer, Nesting, Costs, Inventory, Export, Projects, Settings | ✅ |
-| Canvas: zoom/pan/fit (wheel + botones + auto-fit) | ✅ |
-| Canvas: render correcto (CSS tokens resueltos, altura, pan sin ciclos) | ✅ |
-| Persistencia proyectos (`data/projects/`) | ✅ |
-| Persistencia tarifas (`data/config.json`) | ✅ |
-| Suite pytest 76/76 | ✅ |
-| Types TS auto-generados desde OpenAPI (`npm run gen:types`) | ✅ |
-| Dashboard con KPIs dinámicos (proyectos/mes, eficiencia, retazos) | ✅ |
-| Fix tiempo CNC: deduplicar cortes compartidos (kerf-aware) | ✅ |
-| kerf configurable desde Settings UI → pipeline | ✅ |
-| Drag & drop piezas: snap kerf, transferencia entre placas, eficiencia en vivo | ✅ |
-| DXF importer: parser completo (Aspire → ParsedContour[], 40 tests) | ✅ |
-| DXF import endpoint: `POST /api/furniture/import` + thumbnail + caché (9 tests) | ✅ |
-| Preview 3D/2D en Designer | ❌ placeholder |
+Suite pytest **81/81 ✅**. Todo el backend pipeline, API REST, UI y SQLite persistence completos. Pendiente: Preview 3D/2D en Designer (❌ placeholder).
 
 ---
 
@@ -60,20 +44,22 @@ nesting/exporter.py → DXF (Mach3)
 
 | Entidad | Campos clave |
 |---|---|
-| `Piece` | `name`, `width`, `height`, `qty`, `grain_locked`, `edged(4×bool)`, `holes[]` |
-| `Sheet` | `id`, `width`, `height`, `thickness`, `is_offcut` |
-| `PlacedPiece` | `piece_name`, `sheet_id`, `x`, `y`, `width`, `height`, `rotated` |
-| `SheetUsage` | `sheet_id`, `sheet_width`, `sheet_height`, `placed[]`, `efficiency`, `is_offcut` |
-| `Layout` | `sheets_used[]`, `unplaced[]`, `efficiency`, `new_offcuts[]` |
-| `CostBreakdown` | `material_placas`, `tapacanto`, `tiempo_cnc`, `mano_obra`, `margen` → `total` |
-| `ProjectMeta` | `id(uuid[:8])`, `nombre`, `created_at`, `furniture_tipo`, `ancho`, `alto`, `profundidad` |
-| `SavedProject` | `meta`, `spec(FurnitureSpec)`, `result(PipelineResponse)` |
-| `NestingCanvasHandle` | `zoomIn()`, `zoomOut()`, `fit()` — ref via `forwardRef` |
-| `TokenColors` | `bg`, `surface`, `surface2`, `border`, `primary`, `accent`, `danger`, `text`, `textMuted`, `pieceGrain`, `pieceFree`, `offcut` — hook `useTokenColors()` |
-| `DragState` | `fromSheetIdx`, `pieceIdx`, `pieceWidth`, `pieceHeight`, `toSheetIdx`, `collides` — estado interno de NestingCanvas durante drag |
-| `OperationType` | PROFILE (corte perimetral, Z ≈ thickness), POCKET (cajeado, 0 < Z < thickness), DRILL (taladro, Z > 0), GROOVE (ranura), REFERENCE (sin mecanizado) |
-| `ParsedContour` | `layer`, `op_type`, `vertices[]`, `bbox`, `width`, `height`, `depth`, `tool_diameter?`, `is_through_cut` |
-| `ParseResult` | `contours[]`, `layer_summary{}`, `unrecognized_entities[]`, `warnings[]` |
+| `Piece` | name, width, height, qty, grain_locked, edged(4×bool), holes[] |
+| `Sheet` | id, width, height, thickness, is_offcut |
+| `PlacedPiece` | piece_name, sheet_id, x, y, width, height, rotated |
+| `SheetUsage` | sheet_id, sheet_w/h, placed[], efficiency, is_offcut |
+| `Layout` | sheets_used[], unplaced[], efficiency, new_offcuts[] |
+| `CostBreakdown` | material_placas, tapacanto, tiempo_cnc, mano_obra, margen → total |
+| `ProjectMeta` | id(uuid[:8]), nombre, created_at, furniture_tipo, ancho, alto, profundidad |
+| `SavedProject` | meta, spec(FurnitureSpec), result(PipelineResponse) |
+| `NestingCanvasHandle` | zoomIn(), zoomOut(), fit() — forwardRef |
+| `TokenColors` | bg, surface, surface2, border, primary, accent, danger, text, textMuted, pieceGrain, pieceFree, offcut — hook `useTokenColors()` |
+| `DragState` | fromSheetIdx, pieceIdx, pieceWidth, pieceHeight, toSheetIdx, collides |
+| `OperationType` | PROFILE(Z≈thickness), POCKET(0<Z<thickness), DRILL(Z>0), GROOVE, REFERENCE |
+| `ParsedContour` | layer, op_type, vertices[], bbox, width, height, depth, tool_diameter?, is_through_cut |
+| `ParseResult` | contours[], layer_summary{}, unrecognized_entities[], warnings[] |
+| `ImportedFurniture` | id(uuid), name, dxf_path, material_thickness, version, thumbnail_path, parsed_data(JSON), piece_roles(JSON), created_at, updated_at |
+| `ImportedPiece` | id(uuid), furniture_id, layer, role, vertices(JSON), width, height, depth, quantity |
 
 ---
 
@@ -82,20 +68,17 @@ nesting/exporter.py → DXF (Mach3)
 | Método | Ruta | Descripción |
 |---|---|---|
 | GET | `/health` | liveness |
-| POST | `/pipeline/run` | body: `PipelineRequest` → `PipelineResponse` |
+| POST | `/pipeline/run` | PipelineRequest → PipelineResponse |
 | GET | `/inventory/offcuts` | lista retazos |
-| GET/PUT | `/config/costing` | tarifas desde/hacia `data/config.json` |
-| POST | `/projects` | guardar; body: `SaveProjectRequest` → `ProjectMeta` |
-| GET | `/projects` | listar `ProjectMeta[]` (desc por fecha) |
-| GET | `/projects/{id}` | `SavedProject` completo |
-| DELETE | `/projects/{id}` | elimina `data/projects/{id}.json` |
-| POST | `/api/furniture/import` | multipart: DXF + imágenes → `FurnitureImportResponse` (parsea, thumbnail, caché) |
-| GET | `/api/furniture/{id}/thumbnail` | JPEG 200×200 del DXF importado |
-
-**`run_pipeline()` signature:**
-```python
-run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, edging_policy, dxf_path) → ProjectResult
-```
+| GET/PUT | `/config/costing` | tarifas ↔ data/config.json |
+| POST | `/projects` | SaveProjectRequest → ProjectMeta |
+| GET/DELETE | `/projects` · `/projects/{id}` | listar / detalle / eliminar |
+| POST | `/api/furniture/import` | multipart DXF+imgs → FurnitureImportResponse |
+| GET | `/api/furniture/{id}/thumbnail` | JPEG 200×200 |
+| GET | `/api/furniture` | lista ImportedFurniture[] desc |
+| GET | `/api/furniture/{id}` | detalle + ImportedPiece[] |
+| PUT | `/api/furniture/{id}/roles` | `{"roles":{layer:role}}` → actualiza piece_roles |
+| DELETE | `/api/furniture/{id}` | elimina fila + piezas SQLite |
 
 ---
 
@@ -103,20 +86,18 @@ run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, ed
 
 > Sin `.env`. Fallbacks en `costing/config.py`; overrides en `data/config.json` (editable via `PUT /config/costing`).
 
-| Clave | Valor default | Archivo |
+| Clave | Default | Archivo |
 |---|---|---|
-| `PRECIO_PLACA_MDF_18` | 45000 | `costing/config.py` |
-| `FACTOR_VALOR_RETAZO` | 0.5 | `costing/config.py` |
-| `PRECIO_TAPACANTO_M` | 800 | `costing/config.py` |
-| `COSTO_HORA_CNC` | 8000 | `costing/config.py` |
-| `COSTO_HORA_MO` | 3500 | `costing/config.py` |
-| `MARGEN` | 0.40 | `costing/config.py` |
-| `KERF` | 3 mm | `nesting/config.py` (fallback código) · configurable via `data/config.json` → `kerf_mm` |
-| `STANDARD_SHEET_W/H` | 1830×2440 mm | `nesting/config.py` |
-| `MIN_OFFCUT_SIDE` | 200 mm | `nesting/config.py` |
-| `INVENTORY_PATH` | `data/offcuts.json` (absoluto) | `nesting/config.py` |
-| `cacheDir` Vite | `os.tmpdir()/vite-m_m_optimizer` | `ui/vite.config.ts` |
-| CORS origins | `localhost:5173`, `127.0.0.1:5173` | `api/server.py` |
+| PRECIO_PLACA_MDF_18 | 45000 | costing/config.py |
+| FACTOR_VALOR_RETAZO | 0.5 | costing/config.py |
+| PRECIO_TAPACANTO_M | 800 | costing/config.py |
+| COSTO_HORA_CNC | 8000 | costing/config.py |
+| COSTO_HORA_MO | 3500 | costing/config.py |
+| MARGEN | 0.40 | costing/config.py |
+| KERF | 3 mm | nesting/config.py · data/config.json→kerf_mm |
+| STANDARD_SHEET_W/H | 1830×2440 mm | nesting/config.py |
+| MIN_OFFCUT_SIDE | 200 mm | nesting/config.py |
+| INVENTORY_PATH | data/offcuts.json | nesting/config.py |
 
 ---
 
@@ -128,53 +109,24 @@ python -m venv venv && venv\Scripts\activate && pip install -r requirements.txt
 cd ui && npm install
 
 # Dev
-run.bat                              # backend + frontend + abre navegador (Windows)
-uvicorn api.server:app --reload --port 8000   # solo backend
-cd ui && npm run dev                 # solo frontend → :5173
+run.bat                                        # backend + frontend (Windows)
+uvicorn api.server:app --reload --port 8000    # solo backend
+cd ui && npm run dev                           # solo frontend → :5173
 
-# Tests y calidad
+# Tests
 python -m pytest tests/ -v
 cd ui && npm run typecheck
-cd ui && npm run gen:types           # regenera tipos TS (requiere backend en :8000)
-
-# CLI
-python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --export output/nesting.dxf
+cd ui && npm run gen:types    # regenera tipos TS (requiere backend en :8000)
 ```
-
----
-
-## DXF IMPORTER
-
-**`backend/app/dxf/parser.py`** — Parser de DXF exportado por Vectric Aspire.
-
-- **Entrada:** filepath (DXF) + material_thickness (mm)
-- **Salida:** `ParseResult` con lista de `ParsedContour` (vértices 2D, profundidad Z, tipo operación, diámetro herramienta)
-- **Clasificación operación:**
-  1. Por keyword en layer (drill, pocket, groove, ref, profile) → enum OperationType
-  2. Por geometría: CIRCLE → DRILL; Z ≈ thickness → PROFILE (is_through_cut=True); 0 < Z < thickness → POCKET
-- **Extracción Z:** entity.dxf.elevation (LWPOLYLINE) o primer vértice Z (POLYLINE, SPLINE, LINE, ARC)
-- **Diámetro herramienta:** De layer (_6mm, _D8, dia6, fresa6) o radio * 2 para CIRCLE
-- **Vértices:** Aproximación a 32 segmentos (CIRCLE), 16 (ARC); flattenning (SPLINE); cierre automático si polyline.closed=True
-- **Tests:** 40 tests (`tests/dxf/test_parser.py`) cubriendo regex, clasificación, geometry, fixture auto-generated
-
-**`backend/app/routers/furniture_import.py`** — Router FastAPI para import de muebles desde DXF.
-
-- **Endpoint:** `POST /api/furniture/import` (multipart/form-data)
-- **Validaciones:** ext .dxf requerida · material_thickness 10–50mm · imágenes máx 5, <10MB, ext jpg/jpeg/png/webp
-- **Flujo:** genera UUID → crea `data/furniture/{id}/` → guarda original.dxf → guarda ref_NN.ext → thumbnail JPEG 200×200 con `ezdxf.addons.drawing` + matplotlib (modo Agg) → `parse_aspire_dxf()` → cachea parsed.json
-- **Thumbnail:** `GET /api/furniture/{id}/thumbnail` — sirve thumb.jpg con validación UUID
-- **Tests:** 9 tests (`tests/dxf/test_import.py`); fixture `_isolate_furniture_dir` con monkeypatch evita contaminar `data/furniture/` real
-- **⚠️ Deuda técnica:** `DATA_DIR` usa path relativo al archivo .py; no respeta `MM_DATA_DIR` env var del modo .exe (PyInstaller). Pendiente alinear con `api/server.py`
 
 ---
 
 ## PRÓXIMOS PASOS
 
-| Prioridad | Tarea | Estado | Archivo principal |
-|---|---|---|---|
-| P1 | DXF parser (Aspire → ParsedContour[]) | ✅ | `backend/app/dxf/parser.py` (40 tests) |
-| P1 | Import endpoint `POST /api/furniture/import` | ✅ | `backend/app/routers/furniture_import.py` (9 tests) |
-| P1 (cont) | Integrar import con UI: drag DXF → Designer | ❌ | `ui/src/views/Designer.tsx` |
-| P1 (cont) | Corregir `DATA_DIR` en furniture_import para respetar `MM_DATA_DIR` (.exe) | ❌ deuda | `backend/app/routers/furniture_import.py` |
-| P2 | Preview 3D/2D en Designer | ❌ | `ui/src/views/Designer.tsx` |
-| P3 | Nesting no-rectangular con `pynest2d` | ❌ | `nesting/optimizer.py` |
+| Prior | Tarea | Archivo principal |
+|---|---|---|
+| P1 | UI import: zona drag DXF → lista muebles + thumbnail | `ui/src/views/Designer.tsx` |
+| P1 | Wizard roles por layer (modal, llama PUT /roles) | `ui/src/` nuevo modal |
+| P1 deuda | Corregir `DATA_DIR` en `db.py` → respetar `MM_DATA_DIR` (.exe) | `backend/app/db.py` |
+| P2 | Preview 3D/2D en Designer | `ui/src/views/Designer.tsx` |
+| P3 | Nesting no-rectangular con `pynest2d` | `nesting/optimizer.py` |
