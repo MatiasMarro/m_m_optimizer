@@ -16,6 +16,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 from parametric import Cabinet, Furniture, ShelvingUnit
 from nesting import NestingOptimizer, OffcutInventory, DXFExporter, Sheet
 from nesting.config import STANDARD_SHEET_W, STANDARD_SHEET_H
+import nesting.config as cfg_nesting
 from nesting.models import Layout, Piece
 from costing import CostBreakdown, CostCalculator, HardwareItem
 import costing.config as cfg_c
@@ -86,11 +87,13 @@ def run_pipeline(
     inventory = OffcutInventory()
     offcuts = inventory.available() if use_inventory else []
 
-    layout = NestingOptimizer(inventory=inventory).optimize(
+    cfg = _read_config()
+    kerf = cfg.get("kerf_mm", cfg_nesting.KERF)
+
+    layout = NestingOptimizer(kerf=kerf, inventory=inventory).optimize(
         pieces, standard_sheet=sheet, offcuts=offcuts,
     )
 
-    cfg = _read_config()
     calc = CostCalculator(
         precio_placa=cfg.get("precio_placa_mdf18", cfg_c.PRECIO_PLACA_MDF_18),
         factor_retazo=cfg.get("factor_valor_retazo", cfg_c.FACTOR_VALOR_RETAZO),
@@ -99,6 +102,7 @@ def run_pipeline(
         velocidad_corte=cfg.get("velocidad_corte_mm_min", cfg_c.VELOCIDAD_CORTE_MM_MIN),
         costo_hora_mo=cfg.get("costo_hora_mo", cfg_c.COSTO_HORA_MO),
         margen=cfg.get("margen", cfg_c.MARGEN),
+        kerf=kerf,
     )
     costo = calc.compute(
         layout, pieces,

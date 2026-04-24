@@ -93,7 +93,7 @@ run_pipeline(furniture, *, standard_sheet, use_inventory, horas_mo, herrajes, ed
 | `COSTO_HORA_CNC` | 8000 | `costing/config.py` |
 | `COSTO_HORA_MO` | 3500 | `costing/config.py` |
 | `MARGEN` | 0.40 | `costing/config.py` |
-| `KERF` | 3 mm | `nesting/config.py` |
+| `KERF` | 3 mm | `nesting/config.py` (fallback código) · configurable via `data/config.json` → `kerf_mm` |
 | `STANDARD_SHEET_W/H` | 1830×2440 mm | `nesting/config.py` |
 | `MIN_OFFCUT_SIDE` | 200 mm | `nesting/config.py` |
 | `INVENTORY_PATH` | `data/offcuts.json` (absoluto) | `nesting/config.py` |

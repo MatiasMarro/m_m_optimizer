@@ -46,6 +46,7 @@ _COSTING_DEFAULTS: dict = {
     "costo_hora_mo": 3500.0,
     "horas_mo_default": 4.0,
     "margen": 0.40,
+    "kerf_mm": 3.0,
 }
 
 

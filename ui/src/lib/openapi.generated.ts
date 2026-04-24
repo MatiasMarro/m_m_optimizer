@@ -162,6 +162,8 @@ export interface components {
             horas_mo_default: number;
             /** Margen */
             margen: number;
+            /** Kerf Mm */
+            kerf_mm: number;
         };
         /** FurnitureSpec */
         FurnitureSpec: {

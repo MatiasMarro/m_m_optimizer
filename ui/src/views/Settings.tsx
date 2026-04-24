@@ -73,6 +73,7 @@ export default function Settings() {
           {msg ? msg.text : "Cargando…"}
         </div>
       ) : (
+        <>
         <div className="mx-auto max-w-lg rounded-lg border border-border bg-surface p-6">
           <h2 className="mb-4 text-sm font-medium text-muted uppercase tracking-wide">
             Tarifas
@@ -105,13 +106,6 @@ export default function Settings() {
               onChange={patch("costo_hora_cnc")}
               step={500}
               suffix="$ / h"
-            />
-            <Field
-              label="Velocidad de corte"
-              value={cfg.velocidad_corte_mm_min}
-              onChange={patch("velocidad_corte_mm_min")}
-              step={100}
-              suffix="mm/min"
             />
             <Field
               label="Costo hora mano de obra"
@@ -149,6 +143,33 @@ export default function Settings() {
             )}
           </div>
         </div>
+
+        {/* ── Máquina CNC ─────────────────────────────────── */}
+        <div className="mx-auto mt-6 max-w-lg rounded-lg border border-border bg-surface p-6">
+          <h2 className="mb-1 text-sm font-medium text-muted uppercase tracking-wide">
+            Máquina CNC
+          </h2>
+          <p className="mb-4 text-xs text-muted">
+            Parámetros físicos de la máquina. Afectan el nesting y el cálculo de tiempo de corte.
+          </p>
+          <div className="space-y-4">
+            <Field
+              label="Diámetro de fresa / kerf"
+              value={cfg.kerf_mm}
+              onChange={patch("kerf_mm")}
+              step={0.5}
+              suffix="mm"
+            />
+            <Field
+              label="Velocidad de corte"
+              value={cfg.velocidad_corte_mm_min}
+              onChange={patch("velocidad_corte_mm_min")}
+              step={100}
+              suffix="mm/min"
+            />
+          </div>
+        </div>
+        </>
       )}
     </div>
   );

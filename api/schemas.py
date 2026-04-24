@@ -126,3 +126,4 @@ class CostingConfig(BaseModel):
     costo_hora_mo: float
     horas_mo_default: float
     margen: float
+    kerf_mm: float
