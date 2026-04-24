@@ -2,7 +2,7 @@
 
 Automatización CNC para carpintería: nesting 2D, costos y exportación DXF sobre Mach3 + Vectric Aspire.
 
-**Stack:** Python 3.11 · FastAPI · rectpack · ezdxf · React 18 · TypeScript · Vite · Konva · zustand · Tailwind CSS
+**Stack:** Python 3.11 · FastAPI · rectpack · ezdxf · matplotlib · Pillow · React 18 · TypeScript · Vite · Konva · zustand · Tailwind CSS
 
 ---
 
@@ -11,6 +11,9 @@ Automatización CNC para carpintería: nesting 2D, costos y exportación DXF sob
 ```
 DXF (Aspire) → backend/app/dxf/parser.py → ParsedContour[]
     ↓
+backend/app/routers/furniture_import.py → POST /api/furniture/import
+    (guarda DXF + imágenes, genera thumbnail JPEG, cachea parsed.json)
+
 parametric/ → [Piece+Hole[]]
     ↓
 nesting/optimizer.py → Layout (SheetUsage[], unplaced[], new_offcuts[])
@@ -22,10 +25,11 @@ nesting/exporter.py → DXF (Mach3)
 
 - `main.py::run_pipeline()` — orquesta todo; es la API de dominio pura
 - `backend/app/dxf/parser.py` — `parse_aspire_dxf(filepath, material_thickness) → ParseResult`; extrae Z desde entity.elevation o vértices; clasifica por layer keywords + geometría (PROFILE/POCKET/DRILL/GROOVE/REFERENCE)
-- `api/server.py` — thin FastAPI wrapper sobre `run_pipeline`; serializa via `api/schemas.py` (Pydantic v2)
+- `backend/app/routers/furniture_import.py` — router FastAPI `POST /api/furniture/import`; recibe DXF + imágenes (multipart), valida, parsea, genera thumbnail con matplotlib/ezdxf.addons.drawing, cachea en `data/furniture/{id}/parsed.json`
+- `api/server.py` — thin FastAPI wrapper sobre `run_pipeline` + monta routers de `backend/`; serializa via `api/schemas.py` (Pydantic v2)
 - `ui/` — SPA React; estado efímero en `projectStore` (zustand); tipos en `ui/src/lib/types.ts` (re-exporta `openapi.generated.ts`)
 - `ui/src/lib/nestingUtils.ts` — helpers puros de dominio para drag & drop: `snapToKerf`, `clampToSheet`, `computeSheetOffsets`, `findDropSheet`, `hasCollision`, `piecesCollide`, `previewEfficiency`, `applyDragSnap`, `findNearestValidPosition`, `resolveDropPosition`, `computeSheetEfficiency`
-- Storage: `data/offcuts.json` · `data/projects/{id}.json` · `data/config.json`
+- Storage: `data/offcuts.json` · `data/projects/{id}.json` · `data/config.json` · `data/furniture/{id}/` (original.dxf, thumb.jpg, parsed.json, ref_NN.ext)
 
 ---
 
@@ -40,13 +44,14 @@ nesting/exporter.py → DXF (Mach3)
 | Canvas: render correcto (CSS tokens resueltos, altura, pan sin ciclos) | ✅ |
 | Persistencia proyectos (`data/projects/`) | ✅ |
 | Persistencia tarifas (`data/config.json`) | ✅ |
-| Suite pytest 27/27 | ✅ |
+| Suite pytest 76/76 | ✅ |
 | Types TS auto-generados desde OpenAPI (`npm run gen:types`) | ✅ |
 | Dashboard con KPIs dinámicos (proyectos/mes, eficiencia, retazos) | ✅ |
 | Fix tiempo CNC: deduplicar cortes compartidos (kerf-aware) | ✅ |
 | kerf configurable desde Settings UI → pipeline | ✅ |
 | Drag & drop piezas: snap kerf, transferencia entre placas, eficiencia en vivo | ✅ |
-| DXF importer (Aspire → Piece): parser, extracción Z, tipo operación | ✅ |
+| DXF importer: parser completo (Aspire → ParsedContour[], 40 tests) | ✅ |
+| DXF import endpoint: `POST /api/furniture/import` + thumbnail + caché (9 tests) | ✅ |
 | Preview 3D/2D en Designer | ❌ placeholder |
 
 ---
@@ -84,6 +89,8 @@ nesting/exporter.py → DXF (Mach3)
 | GET | `/projects` | listar `ProjectMeta[]` (desc por fecha) |
 | GET | `/projects/{id}` | `SavedProject` completo |
 | DELETE | `/projects/{id}` | elimina `data/projects/{id}.json` |
+| POST | `/api/furniture/import` | multipart: DXF + imágenes → `FurnitureImportResponse` (parsea, thumbnail, caché) |
+| GET | `/api/furniture/{id}/thumbnail` | JPEG 200×200 del DXF importado |
 
 **`run_pipeline()` signature:**
 ```python
@@ -150,13 +157,24 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 - **Vértices:** Aproximación a 32 segmentos (CIRCLE), 16 (ARC); flattenning (SPLINE); cierre automático si polyline.closed=True
 - **Tests:** 40 tests (`tests/dxf/test_parser.py`) cubriendo regex, clasificación, geometry, fixture auto-generated
 
+**`backend/app/routers/furniture_import.py`** — Router FastAPI para import de muebles desde DXF.
+
+- **Endpoint:** `POST /api/furniture/import` (multipart/form-data)
+- **Validaciones:** ext .dxf requerida · material_thickness 10–50mm · imágenes máx 5, <10MB, ext jpg/jpeg/png/webp
+- **Flujo:** genera UUID → crea `data/furniture/{id}/` → guarda original.dxf → guarda ref_NN.ext → thumbnail JPEG 200×200 con `ezdxf.addons.drawing` + matplotlib (modo Agg) → `parse_aspire_dxf()` → cachea parsed.json
+- **Thumbnail:** `GET /api/furniture/{id}/thumbnail` — sirve thumb.jpg con validación UUID
+- **Tests:** 9 tests (`tests/dxf/test_import.py`); fixture `_isolate_furniture_dir` con monkeypatch evita contaminar `data/furniture/` real
+- **⚠️ Deuda técnica:** `DATA_DIR` usa path relativo al archivo .py; no respeta `MM_DATA_DIR` env var del modo .exe (PyInstaller). Pendiente alinear con `api/server.py`
+
 ---
 
 ## PRÓXIMOS PASOS
 
 | Prioridad | Tarea | Estado | Archivo principal |
 |---|---|---|---|
-| P1 | DXF importer: parser + endpoint `/api/dxf/parse` | ✅ parser | `backend/app/dxf/parser.py` (40 tests) |
-| P1 (cont) | Integrar parser con UI: drag DXF → Designer | ❌ | `ui/src/views/Designer.tsx` + endpoint |
+| P1 | DXF parser (Aspire → ParsedContour[]) | ✅ | `backend/app/dxf/parser.py` (40 tests) |
+| P1 | Import endpoint `POST /api/furniture/import` | ✅ | `backend/app/routers/furniture_import.py` (9 tests) |
+| P1 (cont) | Integrar import con UI: drag DXF → Designer | ❌ | `ui/src/views/Designer.tsx` |
+| P1 (cont) | Corregir `DATA_DIR` en furniture_import para respetar `MM_DATA_DIR` (.exe) | ❌ deuda | `backend/app/routers/furniture_import.py` |
 | P2 | Preview 3D/2D en Designer | ❌ | `ui/src/views/Designer.tsx` |
 | P3 | Nesting no-rectangular con `pynest2d` | ❌ | `nesting/optimizer.py` |

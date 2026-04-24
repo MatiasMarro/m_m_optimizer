@@ -87,6 +87,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+from backend.app.routers.furniture_import import router as furniture_router
+app.include_router(furniture_router)
+
 
 def _build_furniture(spec):
     if spec.tipo == "cabinet":
