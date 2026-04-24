@@ -9,7 +9,7 @@ export default function AppShell() {
       <TopBar />
       <div className="grid min-h-0 grid-cols-[56px_1fr] overflow-hidden">
         <RailNav />
-        <main className="min-h-0 overflow-auto bg-bg">
+        <main className="min-h-0 overflow-hidden bg-bg">
           <Outlet />
         </main>
       </div>

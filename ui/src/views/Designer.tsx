@@ -45,7 +45,7 @@ export default function Designer() {
 
   return (
     <div className="flex h-full">
-      <div className="flex-1 p-6">
+      <div className="min-w-0 flex-1 overflow-auto p-6">
         <h1 className="mb-4 text-xl font-semibold">Diseñador paramétrico</h1>
         <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
           Preview 3D · TODO

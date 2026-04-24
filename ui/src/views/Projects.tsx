@@ -62,7 +62,7 @@ export default function Projects() {
   };
 
   return (
-    <div className="p-6">
+    <div className="h-full overflow-auto p-6">
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-xl font-semibold">Proyectos</h1>
         <Button onClick={() => nav("/designer")}>

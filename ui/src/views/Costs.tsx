@@ -8,7 +8,7 @@ export default function Costs() {
 
   if (!c) {
     return (
-      <div className="p-6">
+      <div className="h-full overflow-auto p-6">
         <h1 className="mb-4 text-xl font-semibold">Costos</h1>
         <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
           Optimiza un proyecto para ver el breakdown.
@@ -27,7 +27,7 @@ export default function Costs() {
   ];
 
   return (
-    <div className="p-6">
+    <div className="h-full overflow-auto p-6">
       <h1 className="mb-4 text-xl font-semibold">Costos</h1>
       <div className="max-w-md rounded-lg border border-border bg-surface">
         <table className="w-full text-sm">

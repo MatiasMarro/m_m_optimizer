@@ -1,5 +1,6 @@
 import {
   forwardRef,
+  useCallback,
   useEffect,
   useImperativeHandle,
   useMemo,
@@ -8,7 +9,8 @@ import {
 } from "react";
 import { Stage, Layer, Rect, Text, Group } from "react-konva";
 import type Konva from "konva";
-import type { SheetUsage } from "@/lib/types";
+import type { PlacedPiece, SheetUsage } from "@/lib/types";
+import { useTokenColors } from "@/lib/useTokenColors";
 
 interface Props {
   sheets: SheetUsage[];
@@ -21,7 +23,7 @@ export type NestingCanvasHandle = {
   fit: () => void;
 };
 
-const SHEET_GAP = 200; // mm, coincide con exporter.py
+const SHEET_GAP = 200;
 const PADDING = 24;
 const MIN_SCALE = 0.05;
 const MAX_SCALE = 5;
@@ -31,20 +33,67 @@ const BUTTON_STEP = 1.2;
 const clamp = (v: number, lo: number, hi: number) =>
   Math.min(hi, Math.max(lo, v));
 
+function hashName(name: string): number {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) {
+    h = (h * 31 + name.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
+
+function buildPalette(base: string, primary: string, accent: string): string[] {
+  return [base, primary, accent, withMix(base, primary), withMix(base, accent)];
+}
+
+function withMix(a: string, b: string): string {
+  const ra = parseHex(a);
+  const rb = parseHex(b);
+  if (!ra || !rb) return a;
+  const mix = [0, 1, 2].map((i) => Math.round(ra[i] * 0.6 + rb[i] * 0.4));
+  return `#${mix.map((n) => n.toString(16).padStart(2, "0")).join("")}`;
+}
+
+function parseHex(c: string): [number, number, number] | null {
+  const m = c.trim().match(/^#?([0-9a-fA-F]{6})$/);
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+interface HoverState {
+  name: string;
+  w: number;
+  h: number;
+  rotated: boolean;
+  x: number;
+  y: number;
+}
+
 const NestingCanvas = forwardRef<NestingCanvasHandle, Props>(function NestingCanvas(
   { sheets, gap = SHEET_GAP },
   ref,
 ) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<Konva.Stage | null>(null);
-  const [size, setSize] = useState({ w: 800, h: 500 });
+  const [size, setSize] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [ready, setReady] = useState(false);
   const [vp, setVp] = useState({ scale: 1, x: 0, y: 0 });
+  const [hover, setHover] = useState<HoverState | null>(null);
+  const panState = useRef<{
+    startX: number;
+    startY: number;
+    vpX: number;
+    vpY: number;
+  } | null>(null);
+
+  const tokens = useTokenColors();
 
   useEffect(() => {
     if (!wrapRef.current) return;
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
-      setSize({ w: Math.max(320, width), h: Math.max(240, height) });
+      setSize({ w: width, h: height });
+      setReady(true);
     });
     ro.observe(wrapRef.current);
     return () => ro.disconnect();
@@ -58,8 +107,10 @@ const NestingCanvas = forwardRef<NestingCanvasHandle, Props>(function NestingCan
     return { totalW, totalH };
   }, [sheets, gap]);
 
-  const computeFit = () => {
-    if (totalW <= 0 || totalH <= 0) return { scale: 1, x: PADDING, y: PADDING };
+  const computeFit = useCallback(() => {
+    if (totalW <= 0 || totalH <= 0 || size.w <= 0 || size.h <= 0) {
+      return { scale: 1, x: PADDING, y: PADDING };
+    }
     const scale = clamp(
       Math.min(
         (size.w - PADDING * 2) / totalW,
@@ -69,35 +120,40 @@ const NestingCanvas = forwardRef<NestingCanvasHandle, Props>(function NestingCan
       MAX_SCALE,
     );
     return { scale, x: PADDING, y: PADDING };
-  };
+  }, [size.w, size.h, totalW, totalH]);
 
-  const zoomAtStageCenter = (factor: number) => {
-    const center = { x: size.w / 2, y: size.h / 2 };
-    setVp((v) => {
-      const newScale = clamp(v.scale * factor, MIN_SCALE, MAX_SCALE);
-      const pointTo = {
-        x: (center.x - v.x) / v.scale,
-        y: (center.y - v.y) / v.scale,
-      };
-      return {
-        scale: newScale,
-        x: center.x - pointTo.x * newScale,
-        y: center.y - pointTo.y * newScale,
-      };
-    });
-  };
+  const zoomAtStageCenter = useCallback(
+    (factor: number) => {
+      const center = { x: size.w / 2, y: size.h / 2 };
+      setVp((v) => {
+        const newScale = clamp(v.scale * factor, MIN_SCALE, MAX_SCALE);
+        const pointTo = {
+          x: (center.x - v.x) / v.scale,
+          y: (center.y - v.y) / v.scale,
+        };
+        return {
+          scale: newScale,
+          x: center.x - pointTo.x * newScale,
+          y: center.y - pointTo.y * newScale,
+        };
+      });
+    },
+    [size.w, size.h],
+  );
 
-  useImperativeHandle(ref, () => ({
-    zoomIn: () => zoomAtStageCenter(BUTTON_STEP),
-    zoomOut: () => zoomAtStageCenter(1 / BUTTON_STEP),
-    fit: () => setVp(computeFit()),
-  }));
+  useImperativeHandle(
+    ref,
+    () => ({
+      zoomIn: () => zoomAtStageCenter(BUTTON_STEP),
+      zoomOut: () => zoomAtStageCenter(1 / BUTTON_STEP),
+      fit: () => setVp(computeFit()),
+    }),
+    [computeFit, zoomAtStageCenter],
+  );
 
-  // Auto-fit al cambiar el layout o el tamaño del contenedor.
   useEffect(() => {
     setVp(computeFit());
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sheets, size.w, size.h, totalW, totalH]);
+  }, [computeFit]);
 
   const handleWheel = (e: Konva.KonvaEventObject<WheelEvent>) => {
     e.evt.preventDefault();
@@ -123,69 +179,145 @@ const NestingCanvas = forwardRef<NestingCanvasHandle, Props>(function NestingCan
     });
   };
 
-  const invScale = 1 / vp.scale;
+  const handleMouseDown = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    panState.current = {
+      startX: e.evt.clientX,
+      startY: e.evt.clientY,
+      vpX: vp.x,
+      vpY: vp.y,
+    };
+  };
+
+  const handleMouseMove = (e: Konva.KonvaEventObject<MouseEvent>) => {
+    if (!panState.current) return;
+    const dx = e.evt.clientX - panState.current.startX;
+    const dy = e.evt.clientY - panState.current.startY;
+    const origin = panState.current;
+    setVp((v) => ({ ...v, x: origin.vpX + dx, y: origin.vpY + dy }));
+  };
+
+  const endPan = () => {
+    panState.current = null;
+  };
+
+  const showHover = (p: PlacedPiece, evt: MouseEvent) => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+    const rect = wrap.getBoundingClientRect();
+    setHover({
+      name: p.piece_name,
+      w: p.width,
+      h: p.height,
+      rotated: p.rotated,
+      x: evt.clientX - rect.left,
+      y: evt.clientY - rect.top,
+    });
+  };
+
+  const invScale = vp.scale > 0 ? 1 / vp.scale : 1;
+  const palette = useMemo(
+    () => buildPalette(tokens.pieceGrain, tokens.primary, tokens.accent),
+    [tokens.pieceGrain, tokens.primary, tokens.accent],
+  );
+
   let offsetX = 0;
 
   return (
-    <div ref={wrapRef} className="h-full w-full overflow-hidden bg-surface-2">
-      <Stage
-        ref={stageRef}
-        width={size.w}
-        height={size.h}
-        scaleX={vp.scale}
-        scaleY={vp.scale}
-        x={vp.x}
-        y={vp.y}
-        draggable
-        onWheel={handleWheel}
-        onDragEnd={(e) => {
-          const node = e.target;
-          setVp((v) => ({ ...v, x: node.x(), y: node.y() }));
-        }}
-      >
-        <Layer>
-          {sheets.map((u, i) => {
-            const x = offsetX;
-            offsetX += u.sheet_width + gap;
-            return (
-              <Group key={`${u.sheet_id}-${i}`} x={x} y={0}>
-                <Rect
-                  width={u.sheet_width}
-                  height={u.sheet_height}
-                  fill={u.is_offcut ? "var(--offcut)" : "var(--surface)"}
-                  stroke="var(--border)"
-                  strokeWidth={invScale}
-                  opacity={u.is_offcut ? 0.15 : 1}
-                />
-                {u.placed.map((p, j) => (
-                  <Group key={j} x={p.x} y={p.y}>
-                    <Rect
-                      width={p.width}
-                      height={p.height}
-                      fill="var(--piece-grain)"
-                      stroke="var(--primary)"
-                      strokeWidth={invScale}
-                    />
-                    <Text
-                      text={p.piece_name}
-                      fontSize={14 * invScale}
-                      fill="var(--text)"
-                      x={4 * invScale}
-                      y={4 * invScale}
-                    />
-                  </Group>
-                ))}
-                <Text
-                  text={`${u.sheet_id} · ${(u.efficiency * 100).toFixed(1)}%`}
-                  fontSize={16 * invScale}
-                  fill="var(--text-muted)"
-                  y={u.sheet_height + 8 * invScale}
-                />
-              </Group>
-            );
-          })}
-        </Layer>
-      </Stage>
+    <div
+      ref={wrapRef}
+      className="relative h-full w-full overflow-hidden"
+      style={{ backgroundColor: tokens.surface2 }}
+    >
+      {ready && size.w > 0 && size.h > 0 && (
+        <Stage
+          ref={stageRef}
+          width={size.w}
+          height={size.h}
+          scaleX={vp.scale}
+          scaleY={vp.scale}
+          x={vp.x}
+          y={vp.y}
+          onWheel={handleWheel}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={endPan}
+          onMouseLeave={endPan}
+        >
+          <Layer>
+            {sheets.map((u, i) => {
+              const x = offsetX;
+              offsetX += u.sheet_width + gap;
+              return (
+                <Group key={`${u.sheet_id}-${i}`} x={x} y={0}>
+                  <Rect
+                    width={u.sheet_width}
+                    height={u.sheet_height}
+                    fill={u.is_offcut ? tokens.offcut : tokens.surface}
+                    stroke={tokens.border}
+                    strokeWidth={invScale}
+                    opacity={u.is_offcut ? 0.25 : 1}
+                  />
+                  {u.placed.map((p, j) => {
+                    const color = palette[hashName(p.piece_name) % palette.length];
+                    return (
+                      <Group
+                        key={j}
+                        x={p.x}
+                        y={p.y}
+                        onMouseEnter={(e) => showHover(p, e.evt)}
+                        onMouseMove={(e) => showHover(p, e.evt)}
+                        onMouseLeave={() => setHover(null)}
+                      >
+                        <Rect
+                          width={p.width}
+                          height={p.height}
+                          fill={color}
+                          stroke={tokens.primary}
+                          strokeWidth={invScale}
+                        />
+                        <Text
+                          text={p.piece_name}
+                          fontSize={14 * invScale}
+                          fill={tokens.text}
+                          x={4 * invScale}
+                          y={4 * invScale}
+                          listening={false}
+                        />
+                      </Group>
+                    );
+                  })}
+                  <Text
+                    text={`${u.sheet_id} · ${(u.efficiency * 100).toFixed(1)}%`}
+                    fontSize={16 * invScale}
+                    fill={tokens.textMuted}
+                    y={u.sheet_height + 8 * invScale}
+                    listening={false}
+                  />
+                </Group>
+              );
+            })}
+          </Layer>
+        </Stage>
+      )}
+
+      {hover && (
+        <div
+          className="pointer-events-none absolute z-10 rounded border px-2 py-1 font-mono text-xs shadow-lg"
+          style={{
+            left: hover.x + 12,
+            top: hover.y + 12,
+            backgroundColor: tokens.surface,
+            borderColor: tokens.border,
+            color: tokens.text,
+          }}
+        >
+          <div className="font-semibold">{hover.name}</div>
+          <div style={{ color: tokens.textMuted }}>
+            {hover.w}×{hover.h}
+            {hover.rotated ? " · rotada" : ""}
+          </div>
+        </div>
+      )}
     </div>
   );
 });

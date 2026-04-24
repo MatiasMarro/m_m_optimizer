@@ -62,7 +62,7 @@ export default function Dashboard() {
   const fmt = (v: number | string) => (loading ? "…" : String(v));
 
   return (
-    <div className="p-6">
+    <div className="h-full overflow-auto p-6">
       <h1 className="mb-4 text-xl font-semibold">Dashboard</h1>
       {error && (
         <div className="mb-4 rounded border border-danger/40 bg-danger/10 px-4 py-2 text-sm text-danger">

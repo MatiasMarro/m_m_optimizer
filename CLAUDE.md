@@ -33,6 +33,7 @@ nesting/exporter.py → DXF
 | API REST completa (health, pipeline, offcuts, projects CRUD, config) | ✅ |
 | UI: Designer, Nesting, Costs, Inventory, Export, Projects, Settings | ✅ |
 | Canvas: zoom/pan/fit (wheel + botones + auto-fit) | ✅ |
+| Canvas: render correcto (CSS tokens resueltos, altura, pan sin ciclos) | ✅ |
 | Persistencia proyectos (`data/projects/`) | ✅ |
 | Persistencia tarifas (`data/config.json`) | ✅ |
 | Suite pytest 27/27 | ✅ |
@@ -58,6 +59,7 @@ nesting/exporter.py → DXF
 | `ProjectMeta` | `id(uuid[:8])`, `nombre`, `created_at`, `furniture_tipo`, `ancho`, `alto`, `profundidad` |
 | `SavedProject` | `meta`, `spec(FurnitureSpec)`, `result(PipelineResponse)` |
 | `NestingCanvasHandle` | `zoomIn()`, `zoomOut()`, `fit()` — ref via `forwardRef` |
+| `TokenColors` | `bg`, `surface`, `surface2`, `border`, `primary`, `accent`, `text`, `textMuted`, `pieceGrain`, `pieceFree`, `offcut` — hook `useTokenColors()` |
 
 ---
 

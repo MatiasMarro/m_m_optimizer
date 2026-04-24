@@ -39,7 +39,7 @@ export default function Export() {
   };
 
   return (
-    <div className="p-6">
+    <div className="h-full overflow-auto p-6">
       <h1 className="mb-4 text-xl font-semibold">Exportar</h1>
       <div className="max-w-lg space-y-4 rounded-lg border border-border bg-surface p-6">
         <p className="text-sm text-muted">

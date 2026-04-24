@@ -65,7 +65,7 @@ export default function Settings() {
   };
 
   return (
-    <div className="p-6">
+    <div className="h-full overflow-auto p-6">
       <h1 className="mb-4 text-xl font-semibold">Ajustes</h1>
 
       {!cfg ? (
