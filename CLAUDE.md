@@ -9,16 +9,19 @@ Automatización CNC para carpintería: nesting 2D, costos y exportación DXF sob
 ## ARQUITECTURA
 
 ```
+DXF (Aspire) → backend/app/dxf/parser.py → ParsedContour[]
+    ↓
 parametric/ → [Piece+Hole[]]
     ↓
 nesting/optimizer.py → Layout (SheetUsage[], unplaced[], new_offcuts[])
     ↓
 costing/calculator.py → CostBreakdown
     ↓
-nesting/exporter.py → DXF
+nesting/exporter.py → DXF (Mach3)
 ```
 
 - `main.py::run_pipeline()` — orquesta todo; es la API de dominio pura
+- `backend/app/dxf/parser.py` — `parse_aspire_dxf(filepath, material_thickness) → ParseResult`; extrae Z desde entity.elevation o vértices; clasifica por layer keywords + geometría (PROFILE/POCKET/DRILL/GROOVE/REFERENCE)
 - `api/server.py` — thin FastAPI wrapper sobre `run_pipeline`; serializa via `api/schemas.py` (Pydantic v2)
 - `ui/` — SPA React; estado efímero en `projectStore` (zustand); tipos en `ui/src/lib/types.ts` (re-exporta `openapi.generated.ts`)
 - `ui/src/lib/nestingUtils.ts` — helpers puros de dominio para drag & drop: `snapToKerf`, `clampToSheet`, `computeSheetOffsets`, `findDropSheet`, `hasCollision`, `piecesCollide`, `previewEfficiency`, `applyDragSnap`, `findNearestValidPosition`, `resolveDropPosition`, `computeSheetEfficiency`
@@ -43,7 +46,7 @@ nesting/exporter.py → DXF
 | Fix tiempo CNC: deduplicar cortes compartidos (kerf-aware) | ✅ |
 | kerf configurable desde Settings UI → pipeline | ✅ |
 | Drag & drop piezas: snap kerf, transferencia entre placas, eficiencia en vivo | ✅ |
-| DXF importer (formas arbitrarias) | ❌ |
+| DXF importer (Aspire → Piece): parser, extracción Z, tipo operación | ✅ |
 | Preview 3D/2D en Designer | ❌ placeholder |
 
 ---
@@ -63,6 +66,9 @@ nesting/exporter.py → DXF
 | `NestingCanvasHandle` | `zoomIn()`, `zoomOut()`, `fit()` — ref via `forwardRef` |
 | `TokenColors` | `bg`, `surface`, `surface2`, `border`, `primary`, `accent`, `danger`, `text`, `textMuted`, `pieceGrain`, `pieceFree`, `offcut` — hook `useTokenColors()` |
 | `DragState` | `fromSheetIdx`, `pieceIdx`, `pieceWidth`, `pieceHeight`, `toSheetIdx`, `collides` — estado interno de NestingCanvas durante drag |
+| `OperationType` | PROFILE (corte perimetral, Z ≈ thickness), POCKET (cajeado, 0 < Z < thickness), DRILL (taladro, Z > 0), GROOVE (ranura), REFERENCE (sin mecanizado) |
+| `ParsedContour` | `layer`, `op_type`, `vertices[]`, `bbox`, `width`, `height`, `depth`, `tool_diameter?`, `is_through_cut` |
+| `ParseResult` | `contours[]`, `layer_summary{}`, `unrecognized_entities[]`, `warnings[]` |
 
 ---
 
@@ -130,10 +136,27 @@ python main.py cabinet --ancho 600 --alto 720 --profundidad 400 --estantes 2 --e
 
 ---
 
+## DXF IMPORTER
+
+**`backend/app/dxf/parser.py`** — Parser de DXF exportado por Vectric Aspire.
+
+- **Entrada:** filepath (DXF) + material_thickness (mm)
+- **Salida:** `ParseResult` con lista de `ParsedContour` (vértices 2D, profundidad Z, tipo operación, diámetro herramienta)
+- **Clasificación operación:**
+  1. Por keyword en layer (drill, pocket, groove, ref, profile) → enum OperationType
+  2. Por geometría: CIRCLE → DRILL; Z ≈ thickness → PROFILE (is_through_cut=True); 0 < Z < thickness → POCKET
+- **Extracción Z:** entity.dxf.elevation (LWPOLYLINE) o primer vértice Z (POLYLINE, SPLINE, LINE, ARC)
+- **Diámetro herramienta:** De layer (_6mm, _D8, dia6, fresa6) o radio * 2 para CIRCLE
+- **Vértices:** Aproximación a 32 segmentos (CIRCLE), 16 (ARC); flattenning (SPLINE); cierre automático si polyline.closed=True
+- **Tests:** 40 tests (`tests/dxf/test_parser.py`) cubriendo regex, clasificación, geometry, fixture auto-generated
+
+---
+
 ## PRÓXIMOS PASOS
 
-| Prioridad | Tarea | Archivo principal |
-|---|---|---|
-| P1 | DXF importer: `ezdxf` → contornos arbitrarios → `Piece` | `nesting/dxf_importer.py` (nuevo) |
-| P2 | Preview 3D/2D en Designer | `ui/src/views/Designer.tsx` |
-| P3 | Nesting no-rectangular con `pynest2d` | `nesting/optimizer.py` |
+| Prioridad | Tarea | Estado | Archivo principal |
+|---|---|---|---|
+| P1 | DXF importer: parser + endpoint `/api/dxf/parse` | ✅ parser | `backend/app/dxf/parser.py` (40 tests) |
+| P1 (cont) | Integrar parser con UI: drag DXF → Designer | ❌ | `ui/src/views/Designer.tsx` + endpoint |
+| P2 | Preview 3D/2D en Designer | ❌ | `ui/src/views/Designer.tsx` |
+| P3 | Nesting no-rectangular con `pynest2d` | ❌ | `nesting/optimizer.py` |
