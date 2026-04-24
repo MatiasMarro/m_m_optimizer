@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Matías Marro. All rights reserved.
+# m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 from typing import List, Optional, Tuple
 from rectpack import newPacker, PackingMode, PackingBin, MaxRectsBssf
 

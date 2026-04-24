@@ -64,9 +64,23 @@ Ve a **http://localhost:5173**
 
 1. **Diseñador** (rail izquierdo) → ajustá ancho/alto/profundidad → click **Optimizar**
 2. Se redirige a **Nesting** → ves el layout con las placas
-3. **Costos** → breakdown de gastos
-4. **Retazos** → inventario automático de retazos generados
-5. **Exportar** → genera DXF compatible con Aspire
+3. En el canvas podés **arrastrar piezas** entre placas para ajustar el layout manualmente;
+   las piezas hacen snap al kerf y se muestra la eficiencia en tiempo real
+4. **Costos** → breakdown de gastos
+5. **Retazos** → inventario automático de retazos generados
+6. **Exportar** → genera DXF compatible con Aspire
+
+---
+
+## Configuración
+
+### Kerf (ancho de corte de la fresa)
+Configurable desde **Ajustes** → campo "Kerf (mm)". El valor se guarda en `data/config.json`
+y se usa en el pipeline de nesting y en el snap del canvas.
+
+### Tarifas y costos
+También editables en **Ajustes**: costo/hora CNC, costo/hora m.o., precio placa MDF 18mm,
+precio tapacanto/m, margen.
 
 ---
 
@@ -89,3 +103,7 @@ uvicorn api.server:app --reload --port 9000
 
 ### Puerto 5173 ocupado (menos probable)
 Vite usa el siguiente puerto disponible automáticamente.
+
+---
+
+*m_m_optimizer-cnc © 2024-2026 Matías Marro. All rights reserved.*

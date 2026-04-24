@@ -13,6 +13,9 @@ uvicorn api.server:app --reload --port 8000
 cd ui
 npm install        # o pnpm / yarn
 npm run dev        # http://localhost:5173
+
+# Regenerar tipos TypeScript desde OpenAPI (requiere backend en :8000)
+npm run gen:types
 ```
 
 Vite proxya `/api/*` → `http://localhost:8000`.
@@ -27,8 +30,12 @@ src/
     ui/         Button, KpiCard
   views/        Dashboard, Projects, Designer, Nesting,
                 Inventory, Costs, Export, Settings
-  store/        projectStore, themeStore (zustand)
-  lib/          api.ts (fetch client), types.ts (espejo de schemas.py)
+  store/        projectStore (zustand, incluye movePiece)
+                themeStore (zustand, light/dark)
+  lib/          api.ts          — fetch client tipado
+                types.ts        — re-exporta openapi.generated.ts
+                nestingUtils.ts — helpers puros para drag & drop canvas
+                useTokenColors  — colores hex para Konva (CSS vars ≠ Canvas2D)
   styles/       tokens.css (light/dark), globals.css
   router.tsx    react-router-dom
 ```
@@ -38,4 +45,19 @@ src/
 1. Ir a **Diseñador** (rail izquierdo).
 2. Ajustar dims → `Optimizar`.
 3. Redirige a **Nesting** con layout renderizado en Konva.
-4. Ver costos en **Costos**, exportar DXF en **Exportar**.
+4. **Drag & drop** piezas entre placas: snap al kerf, detección de colisiones,
+   eficiencia en vivo. El kerf se lee de `GET /config/costing`.
+5. Ver costos en **Costos**, exportar DXF en **Exportar**.
+6. Kerf y tarifas configurables en **Ajustes** (persiste en `data/config.json`).
+
+## Notas Konva / Canvas
+
+- Las CSS custom properties (`var(--color)`) **no funcionan** en Canvas 2D API.
+- Usar siempre `useTokenColors()` que devuelve constantes hex según el tema del store.
+- El canvas de Nesting necesita `forwardRef` + `NestingCanvasHandle` para exponer
+  `zoomIn()`, `zoomOut()`, `fit()` al toolbar.
+
+---
+
+*m_m_optimizer-cnc © 2024-2026 Matías Marro. All rights reserved.*
+

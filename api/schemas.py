@@ -1,3 +1,5 @@
+# Copyright (c) 2024-2026 Matías Marro. All rights reserved.
+# m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 """Pydantic schemas para la API. Espejan los dataclasses del core."""
 from __future__ import annotations
 
