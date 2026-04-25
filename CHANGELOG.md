@@ -5,6 +5,18 @@ Versiones según [Semantic Versioning](https://semver.org/lang/es/).
 
 ---
 
+## [0.4.0] — 2026-04-25
+
+### Added
+- **Profundidades Z editables por layer** en `RoleWizardModal`: cada layer muestra un input numérico que permite sobreescribir la profundidad calculada automáticamente. Los overrides se persisten en BD (`layer_depths_override`) y se combinan con las profundidades computadas al listar muebles (override gana).
+- **`PUT /api/furniture/{id}/layer_depths`**: nuevo endpoint que acepta `{depths: {layer: mm}}` y almacena los overrides por mueble.
+- **Columna `layer_depths_override`** en `ImportedFurniture` (SQLite), con migración `ALTER TABLE ... ADD COLUMN` idempotente en `init_db()`.
+
+### Changed
+- **Projects — modal de confirmación**: reemplaza el diálogo nativo `window.confirm` por un modal portal con backdrop blur, botón "Cancelar" y botón "Eliminar" con spinner, siguiendo el patrón de modales del proyecto (`createPortal`, ESC/click-fuera cierra, `role="dialog" aria-modal`).
+
+---
+
 ## [0.3.0] — 2026-04-25
 
 ### Added
