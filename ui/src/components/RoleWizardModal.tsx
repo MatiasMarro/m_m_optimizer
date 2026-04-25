@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X } from "lucide-react";
+import { Sparkles, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { api } from "@/lib/api";
 
@@ -49,6 +49,8 @@ export default function RoleWizardModal({
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [suggesting, setSuggesting] = useState(false);
+  const [aiNote, setAiNote] = useState<string | null>(null);
 
   // Close on Escape
   useEffect(() => {
@@ -76,6 +78,41 @@ export default function RoleWizardModal({
       setError(e instanceof Error ? e.message : "Error desconocido");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSuggestAI = async () => {
+    setSuggesting(true);
+    setError(null);
+    setAiNote(null);
+    try {
+      const res = await api.suggestRoles(furnitureId);
+      setRoles((prev) => {
+        const next = { ...prev };
+        let applied = 0;
+        for (const layer of layers) {
+          const sug = res.suggestions[layer];
+          if (sug && sug !== "skip") {
+            next[layer] = sug;
+            applied += 1;
+          }
+        }
+        setAiNote(
+          `IA (${res.model}) sugirió ${applied}/${res.layers_analyzed} layers. ` +
+          `Revisá y guardá.`,
+        );
+        return next;
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // El backend devuelve 422 si no hay API key
+      setError(
+        msg.includes("ANTHROPIC_API_KEY")
+          ? "Configurá ANTHROPIC_API_KEY (variable de entorno o data/config.json)."
+          : `Error de IA: ${msg}`,
+      );
+    } finally {
+      setSuggesting(false);
     }
   };
 
@@ -114,6 +151,25 @@ export default function RoleWizardModal({
             <X size={15} />
           </button>
         </div>
+
+        {/* AI suggestion bar */}
+        {layers.length > 0 && (
+          <div className="flex items-center gap-2 border-b border-border bg-surface-2 px-5 py-2">
+            <Button
+              variant="ghost"
+              onClick={handleSuggestAI}
+              disabled={suggesting || saving}
+              className="h-7 px-2 text-xs"
+              title="Claude Opus 4.7 analiza los layers y propone roles"
+            >
+              <Sparkles size={12} />
+              {suggesting ? "Analizando…" : "Sugerir con IA"}
+            </Button>
+            {aiNote && (
+              <span className="truncate text-[11px] text-muted">{aiNote}</span>
+            )}
+          </div>
+        )}
 
         {/* Layer list */}
         <div className="flex-1 overflow-y-auto px-5 py-3">

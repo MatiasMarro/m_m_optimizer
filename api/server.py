@@ -15,7 +15,7 @@ import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +28,8 @@ from nesting import OffcutInventory
 from parametric import Cabinet, ShelvingUnit
 
 from .schemas import (
+    AIConfigStatus,
+    AIConfigUpdate,
     CostDTO,
     CostingConfig,
     LayoutDTO,
@@ -276,8 +278,62 @@ def get_costing_config():
 @app.put("/config/costing", response_model=CostingConfig)
 def put_costing_config(cfg: CostingConfig):
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+    # Preserve sensitive fields (anthropic_api_key) when overwriting
+    existing: dict = {}
+    if CONFIG_PATH.exists():
+        try:
+            existing = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+    merged = {**cfg.model_dump(), "anthropic_api_key": existing.get("anthropic_api_key")}
+    if not merged["anthropic_api_key"]:
+        merged.pop("anthropic_api_key", None)
+    CONFIG_PATH.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
     return cfg
+
+
+def _read_full_config() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+    return {}
+
+
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    if not key or len(key) < 8:
+        return None
+    return f"{key[:7]}…{key[-4:]}"
+
+
+@app.get("/config/ai", response_model=AIConfigStatus)
+def get_ai_config():
+    """Estado de la config de IA. Nunca devuelve la key en plano."""
+    cfg = _read_full_config()
+    key = cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY")
+    return AIConfigStatus(
+        has_anthropic_api_key=bool(key),
+        masked_key=_mask_key(key),
+    )
+
+
+@app.put("/config/ai", response_model=AIConfigStatus)
+def put_ai_config(body: AIConfigUpdate):
+    """Setea o limpia la API key. `null`/`""` la borra del config (env queda intacto)."""
+    cfg = _read_full_config()
+    new_key = (body.anthropic_api_key or "").strip() or None
+    if new_key:
+        cfg["anthropic_api_key"] = new_key
+    else:
+        cfg.pop("anthropic_api_key", None)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    effective = new_key or os.environ.get("ANTHROPIC_API_KEY")
+    return AIConfigStatus(
+        has_anthropic_api_key=bool(effective),
+        masked_key=_mask_key(effective),
+    )
 
 
 # ---------------------------------------------------------------------------

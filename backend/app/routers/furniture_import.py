@@ -26,6 +26,11 @@ from backend.app.dxf.crv_parser import (
 )
 from backend.app.dxf.parser import parse_aspire_dxf
 from backend.app.repositories import furniture_repo
+from backend.app.ai import (
+    ClaudeAPIKeyMissingError,
+    LayerInfo,
+    suggest_roles as ai_suggest_roles,
+)
 
 DATA_DIR: Path = Path(__file__).resolve().parents[3] / "data"
 FURNITURE_DIR: Path = DATA_DIR / "furniture"
@@ -156,11 +161,16 @@ def _serialize_parsed(parsed_result) -> dict:
         if "op_type" in d and hasattr(d["op_type"], "value"):
             d["op_type"] = d["op_type"].value
         contours.append(d)
+    text_annotations = [
+        asdict(t) if is_dataclass(t) else dict(t)
+        for t in getattr(parsed_result, "text_annotations", [])
+    ]
     return {
         "contours": contours,
         "layer_summary": dict(parsed_result.layer_summary),
         "unrecognized_entities": list(parsed_result.unrecognized_entities),
         "warnings": list(parsed_result.warnings),
+        "text_annotations": text_annotations,
     }
 
 
@@ -423,3 +433,249 @@ async def delete_furniture(furniture_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Furniture no encontrado")
     shutil.rmtree(FURNITURE_DIR / furniture_id, ignore_errors=True)
     return {"ok": True}
+
+
+# ─── Conversión importado → pipeline ──────────────────────────────────────────
+
+# Tolerancia para agrupar piezas con dimensiones similares (mm)
+_DIM_GROUP_TOL: float = 1.0
+
+# Roles cuyas piezas requieren grano lockeado por defecto (no rotables)
+_GRAIN_LOCKED_ROLES: frozenset[str] = frozenset({"lateral"})
+
+
+def _build_pieces_from_imported(
+    parsed: dict, piece_roles: dict
+) -> tuple[list, list[str]]:
+    """Convierte contornos PROFILE de un mueble importado en `nesting.Piece[]`.
+
+    Agrupa contornos por (role|layer, width≈, height≈) y suma cantidades.
+    Retorna (pieces, warnings).
+    """
+    from nesting.models import Piece as NestingPiece
+
+    contours = parsed.get("contours") or []
+    warnings: list[str] = []
+
+    # bucket: key=(name, round(w/tol), round(h/tol)) → {name, w, h, qty, grain_locked}
+    buckets: dict[tuple, dict] = {}
+    for c in contours:
+        if not isinstance(c, dict):
+            continue
+        if (c.get("op_type") or "").lower() != "profile":
+            continue
+        layer = c.get("layer") or "?"
+        role = (piece_roles.get(layer) or "").strip()
+        name = role or layer
+        w = float(c.get("width") or 0)
+        h = float(c.get("height") or 0)
+        if w <= 0 or h <= 0:
+            warnings.append(f"Contorno '{layer}' descartado: dimensiones inválidas ({w}×{h})")
+            continue
+        key = (name, round(w / _DIM_GROUP_TOL), round(h / _DIM_GROUP_TOL))
+        if key in buckets:
+            buckets[key]["qty"] += 1
+        else:
+            buckets[key] = {
+                "name": name,
+                "w": w,
+                "h": h,
+                "qty": 1,
+                "grain_locked": role.lower() in _GRAIN_LOCKED_ROLES,
+            }
+
+    pieces = [
+        NestingPiece(
+            name=b["name"],
+            width=b["w"],
+            height=b["h"],
+            qty=b["qty"],
+            grain_locked=b["grain_locked"],
+        )
+        for b in buckets.values()
+    ]
+    return pieces, warnings
+
+
+def _aggregate_layers_for_ai(parsed: dict) -> list[LayerInfo]:
+    """Agrupa contornos por layer y produce LayerInfo[] para el analyzer."""
+    contours = parsed.get("contours") or []
+    by_layer: dict[str, dict] = {}
+    for c in contours:
+        if not isinstance(c, dict):
+            continue
+        layer = c.get("layer")
+        if not layer:
+            continue
+        bucket = by_layer.setdefault(layer, {
+            "count": 0,
+            "op_types": {},
+            "widths": [],
+            "heights": [],
+            "depths": [],
+        })
+        bucket["count"] += 1
+        op = (c.get("op_type") or "unknown").lower()
+        bucket["op_types"][op] = bucket["op_types"].get(op, 0) + 1
+        for src, dst in (("width", "widths"), ("height", "heights"), ("depth", "depths")):
+            v = c.get(src)
+            if isinstance(v, (int, float)):
+                bucket[dst].append(float(v))
+
+    def _avg(xs: list[float]) -> Optional[float]:
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    return [
+        LayerInfo(
+            name=name,
+            count=b["count"],
+            op_type_distribution=b["op_types"],
+            avg_width=_avg(b["widths"]),
+            avg_height=_avg(b["heights"]),
+            avg_depth=_avg(b["depths"]),
+        )
+        for name, b in by_layer.items()
+    ]
+
+
+@router.post("/{furniture_id}/suggest-roles")
+async def ai_suggest_roles_endpoint(furniture_id: str) -> dict:
+    """Llama a Claude Opus 4.7 para sugerir roles por layer del mueble.
+
+    Retorna `{suggestions: {layer: role}, layers_analyzed: int, model: str}`.
+    Levanta 422 si no hay API key configurada, 502 si la llamada al API falla.
+    """
+    if not _UUID_RE.match(furniture_id):
+        raise HTTPException(status_code=400, detail="furniture_id inválido")
+
+    row = furniture_repo.get_imported_furniture(furniture_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Furniture no encontrado")
+
+    try:
+        parsed = json.loads(row.parsed_data) if row.parsed_data else {}
+    except (TypeError, json.JSONDecodeError):
+        parsed = {}
+
+    layers = _aggregate_layers_for_ai(parsed)
+    if not layers:
+        raise HTTPException(
+            status_code=422,
+            detail="El mueble no tiene layers analizables. Re-importá el DXF.",
+        )
+
+    config_path = DATA_DIR / "config.json"
+    text_annotations = parsed.get("text_annotations") or []
+    try:
+        suggestions = ai_suggest_roles(
+            furniture_name=row.name,
+            material_thickness=float(row.material_thickness or 18.0),
+            layers=layers,
+            text_annotations=text_annotations,
+            config_path=config_path,
+        )
+    except ClaudeAPIKeyMissingError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Error llamando a Claude: {type(e).__name__}: {e}",
+        )
+
+    return {
+        "suggestions": suggestions,
+        "layers_analyzed": len(layers),
+        "model": "claude-opus-4-7",
+    }
+
+
+@router.post("/{furniture_id}/optimize")
+async def optimize_imported(furniture_id: str, body: dict = Body(default={})) -> dict:
+    """Convierte un mueble importado en piezas y corre el pipeline de nesting.
+
+    Body opcional:
+        use_inventory: bool = False
+        horas_mo: float | null
+        compare_inventory: bool = False  → si true, corre dos veces (con/sin retazos)
+                                            y devuelve {without, with, savings}
+    """
+    if not _UUID_RE.match(furniture_id):
+        raise HTTPException(status_code=400, detail="furniture_id inválido")
+
+    row = furniture_repo.get_imported_furniture(furniture_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Furniture no encontrado")
+
+    try:
+        parsed = json.loads(row.parsed_data) if row.parsed_data else {}
+    except (TypeError, json.JSONDecodeError):
+        parsed = {}
+    try:
+        piece_roles = json.loads(row.piece_roles) if row.piece_roles else {}
+    except (TypeError, json.JSONDecodeError):
+        piece_roles = {}
+
+    pieces, build_warnings = _build_pieces_from_imported(parsed, piece_roles)
+    if not pieces:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Este mueble no tiene contornos PROFILE convertibles a piezas. "
+                "Asigná roles a los layers o verificá que el DXF contenga geometría de corte."
+            ),
+        )
+
+    use_inventory = bool(body.get("use_inventory", False))
+    horas_mo = body.get("horas_mo")
+    compare = bool(body.get("compare_inventory", False))
+
+    # Import lazy para evitar ciclos al testear sin el pipeline cargado
+    from main import run_pipeline_from_pieces  # noqa: PLC0415
+    from api.server import _serialize  # noqa: PLC0415
+
+    def _run(use_inv: bool):
+        # Cada corrida usa Piece[] frescas (deepcopy via list comprehension de los buckets)
+        from nesting.models import Piece as NP
+        fresh = [NP(name=p.name, width=p.width, height=p.height, qty=p.qty,
+                    grain_locked=p.grain_locked) for p in pieces]
+        result = run_pipeline_from_pieces(
+            fresh,
+            use_inventory=use_inv,
+            horas_mo=horas_mo if isinstance(horas_mo, (int, float)) else None,
+        )
+        resp = _serialize(result)
+        # Inyectar warnings del builder y del furniture origen
+        resp.warnings = list(resp.warnings) + build_warnings
+        return resp
+
+    if compare:
+        without = _run(False)
+        with_inv = _run(True)
+        # NOTA: la corrida _with_ persiste consumos al inventory; la _without_ no.
+        # Como _run(True) es la última, los retazos consumidos quedan en disco.
+        sheets_without = sum(1 for s in without.layout.sheets_used if not s.is_offcut)
+        sheets_with = sum(1 for s in with_inv.layout.sheets_used if not s.is_offcut)
+        offcuts_used = sum(1 for s in with_inv.layout.sheets_used if s.is_offcut)
+        savings_ars = without.costo.total - with_inv.costo.total
+        return {
+            "compare": True,
+            "without_inventory": without.model_dump(mode="json"),
+            "with_inventory": with_inv.model_dump(mode="json"),
+            "summary": {
+                "sheets_without": sheets_without,
+                "sheets_with": sheets_with,
+                "offcuts_used": offcuts_used,
+                "savings_ars": savings_ars,
+                "savings_pct": (savings_ars / without.costo.total) if without.costo.total > 0 else 0.0,
+            },
+        }
+
+    resp = _run(use_inventory)
+    return {
+        "compare": False,
+        "result": resp.model_dump(mode="json"),
+        "summary": {
+            "pieces_count": sum(p.qty for p in pieces),
+            "sheets_used": len(resp.layout.sheets_used),
+        },
+    }

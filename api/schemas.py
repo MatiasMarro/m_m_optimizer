@@ -129,3 +129,15 @@ class CostingConfig(BaseModel):
     horas_mo_default: float
     margen: float
     kerf_mm: float
+
+
+class AIConfigStatus(BaseModel):
+    """Estado de la config de IA (NUNCA devuelve la key en plano)."""
+    has_anthropic_api_key: bool
+    masked_key: Optional[str] = None  # ej. "sk-ant-...XYZ" — sólo últimos 4 chars
+    model: str = "claude-opus-4-7"
+
+
+class AIConfigUpdate(BaseModel):
+    """Body para `PUT /config/ai`. `null` o "" limpia la key."""
+    anthropic_api_key: Optional[str] = None

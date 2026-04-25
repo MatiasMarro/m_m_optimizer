@@ -175,3 +175,94 @@ class TestParseAspireDxf:
     def test_invalid_file_raises(self) -> None:
         with pytest.raises((FileNotFoundError, IOError)):
             parse_aspire_dxf("/nonexistent/path/does-not-exist.dxf")
+
+
+class TestDetectQualityIssues:
+    def test_oversized_piece_warning(self, tmp_path) -> None:
+        """Una pieza más grande que la placa estándar dispara warning."""
+        from backend.app.dxf.parser import detect_quality_issues
+        path = tmp_path / "oversized.dxf"
+        doc = ezdxf.new("R2010")
+        msp = doc.modelspace()
+        # 3000x3000mm — más grande que 1830x2440 en ambas orientaciones
+        msp.add_lwpolyline(
+            [(0, 0), (3000, 0), (3000, 3000), (0, 3000)],
+            close=True,
+            dxfattribs={"layer": "BIG", "elevation": 18},
+        )
+        doc.saveas(str(path))
+
+        result = parse_aspire_dxf(str(path))
+        assert any("excede" in w for w in result.warnings)
+
+    def test_duplicate_profile_warning(self, tmp_path) -> None:
+        """Dos contornos PROFILE superpuestos en el mismo layer → warning."""
+        path = tmp_path / "dup.dxf"
+        doc = ezdxf.new("R2010")
+        msp = doc.modelspace()
+        for _ in range(2):
+            msp.add_lwpolyline(
+                [(0, 0), (500, 0), (500, 300), (0, 300)],
+                close=True,
+                dxfattribs={"layer": "DUP", "elevation": 18},
+            )
+        doc.saveas(str(path))
+
+        result = parse_aspire_dxf(str(path))
+        assert any("superpuestos" in w or "duplicado" in w for w in result.warnings)
+
+    def test_layer_without_profile_warning(self, parsed: ParseResult) -> None:
+        """Layers como Drill_8mm o ref_marcas no tienen PROFILE → warning informativo."""
+        assert any("sin contornos PROFILE" in w for w in parsed.warnings)
+
+
+class TestTextAnnotations:
+    def test_extract_text_entity(self, tmp_path) -> None:
+        path = tmp_path / "with_text.dxf"
+        doc = ezdxf.new("R2010")
+        msp = doc.modelspace()
+        msp.add_text(
+            "600 mm",
+            dxfattribs={"layer": "COTAS", "height": 10, "insert": (100, 200)},
+        )
+        msp.add_lwpolyline(
+            [(0, 0), (600, 0), (600, 400), (0, 400)],
+            close=True,
+            dxfattribs={"layer": "Profile", "elevation": 18},
+        )
+        doc.saveas(str(path))
+
+        result = parse_aspire_dxf(str(path))
+        assert len(result.text_annotations) >= 1
+        ann = result.text_annotations[0]
+        assert ann.text == "600 mm"
+        assert ann.layer == "COTAS"
+        assert ann.kind == "text"
+        assert ann.x == pytest.approx(100, abs=1)
+        assert ann.y == pytest.approx(200, abs=1)
+        # Y los TEXT/MTEXT/DIMENSION ya NO deben aparecer en unrecognized_entities
+        assert "TEXT" not in result.unrecognized_entities
+
+    def test_text_annotations_serializable(self, tmp_path) -> None:
+        """parsed_data persistido en DB debe poder serializarse a JSON."""
+        from backend.app.routers.furniture_import import _serialize_parsed
+        import json as _json
+
+        path = tmp_path / "serializable.dxf"
+        doc = ezdxf.new("R2010")
+        msp = doc.modelspace()
+        msp.add_text("test", dxfattribs={"layer": "X", "height": 5, "insert": (0, 0)})
+        msp.add_lwpolyline(
+            [(0, 0), (100, 0), (100, 100), (0, 100)],
+            close=True,
+            dxfattribs={"layer": "P", "elevation": 18},
+        )
+        doc.saveas(str(path))
+
+        result = parse_aspire_dxf(str(path))
+        payload = _serialize_parsed(result)
+        # No debe lanzar
+        roundtrip = _json.loads(_json.dumps(payload))
+        assert "text_annotations" in roundtrip
+        assert len(roundtrip["text_annotations"]) >= 1
+        assert roundtrip["text_annotations"][0]["text"] == "test"

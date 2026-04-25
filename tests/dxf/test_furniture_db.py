@@ -151,3 +151,62 @@ def test_get_nonexistent_returns_404():
     fake = "00000000-0000-0000-0000-000000000000"
     r = client.get(f"/api/furniture/{fake}")
     assert r.status_code == 404
+
+
+def test_optimize_imported_returns_layout(dxf_file):
+    """POST /optimize convierte contornos PROFILE en piezas y retorna PipelineResponse."""
+    r = _upload_dxf(dxf_file)
+    assert r.status_code == 200
+    furn_id = r.json()["furniture_id"]
+
+    r2 = client.post(f"/api/furniture/{furn_id}/optimize", json={})
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["compare"] is False
+    assert "result" in body
+    assert "summary" in body
+    assert body["summary"]["pieces_count"] >= 1
+    layout = body["result"]["layout"]
+    assert len(layout["sheets_used"]) >= 1
+
+
+def test_optimize_imported_compare_inventory(dxf_file):
+    """compare_inventory:true devuelve dos corridas + summary con savings."""
+    r = _upload_dxf(dxf_file)
+    furn_id = r.json()["furniture_id"]
+
+    r2 = client.post(
+        f"/api/furniture/{furn_id}/optimize",
+        json={"compare_inventory": True},
+    )
+    assert r2.status_code == 200, r2.text
+    body = r2.json()
+    assert body["compare"] is True
+    assert "without_inventory" in body and "with_inventory" in body
+    assert "savings_ars" in body["summary"]
+    assert "sheets_without" in body["summary"]
+
+
+def test_optimize_imported_404_on_missing():
+    fake = "00000000-0000-0000-0000-000000000000"
+    r = client.post(f"/api/furniture/{fake}/optimize", json={})
+    assert r.status_code == 404
+
+
+def test_optimize_imported_422_when_no_profile_contours(dxf_file, monkeypatch):
+    """Si el mueble no tiene contornos PROFILE devuelve 422 con instrucción."""
+    r = _upload_dxf(dxf_file)
+    furn_id = r.json()["furniture_id"]
+
+    # Borrar parsed_data para simular un mueble sin contornos PROFILE
+    from backend.app.repositories import furniture_repo
+    import backend.app.db as db_module
+    sess = db_module.SessionLocal()
+    row = sess.get(db_module.ImportedFurniture, furn_id)
+    row.parsed_data = '{"contours": [], "layer_summary": {}}'
+    sess.commit()
+    sess.close()
+
+    r2 = client.post(f"/api/furniture/{furn_id}/optimize", json={})
+    assert r2.status_code == 422
+    assert "PROFILE" in r2.json()["detail"]

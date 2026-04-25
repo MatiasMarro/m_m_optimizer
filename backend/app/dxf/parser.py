@@ -39,14 +39,27 @@ class ParsedContour:
 
 
 @dataclass
+class TextAnnotation:
+    """Texto/cota suelto en el DXF (TEXT, MTEXT, DIMENSION)."""
+    layer: str
+    text: str
+    x: float
+    y: float
+    height: float
+    kind: str  # "text" | "mtext" | "dimension"
+
+
+@dataclass
 class ParseResult:
     contours: list[ParsedContour]
     layer_summary: dict[str, int] = field(default_factory=dict)
     unrecognized_entities: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    text_annotations: list[TextAnnotation] = field(default_factory=list)
 
 
-_IGNORED_TYPES = frozenset({"TEXT", "MTEXT", "DIMENSION", "INSERT", "HATCH"})
+_IGNORED_TYPES = frozenset({"INSERT", "HATCH"})
+_TEXT_TYPES = frozenset({"TEXT", "MTEXT", "DIMENSION"})
 _PROCESSABLE_TYPES = frozenset(
     {"LWPOLYLINE", "POLYLINE", "CIRCLE", "SPLINE", "LINE", "ARC"}
 )
@@ -227,6 +240,110 @@ def compute_bbox(vertices: list[tuple[float, float]]) -> tuple[float, float, flo
     return (min(xs), min(ys), max(xs), max(ys))
 
 
+_OVERSIZED_MAX_W: float = 1830.0  # placa estándar W
+_OVERSIZED_MAX_H: float = 2440.0  # placa estándar H
+_DUPLICATE_TOL_MM: float = 1.0    # tolerancia para considerar dos contornos "iguales"
+
+
+def _extract_text_annotation(entity, layer_name: str) -> Optional["TextAnnotation"]:
+    """Extrae TextAnnotation de TEXT/MTEXT/DIMENSION; None si falla."""
+    entity_type = entity.dxftype()
+    try:
+        if entity_type == "TEXT":
+            text = str(getattr(entity.dxf, "text", "")).strip()
+            insert = entity.dxf.insert
+            height = float(getattr(entity.dxf, "height", 0.0))
+            return TextAnnotation(
+                layer=layer_name, text=text,
+                x=float(insert[0]), y=float(insert[1]),
+                height=height, kind="text",
+            )
+        if entity_type == "MTEXT":
+            text = entity.text if hasattr(entity, "text") else str(getattr(entity.dxf, "text", ""))
+            text = str(text).replace("\\P", " ").strip()
+            insert = entity.dxf.insert
+            height = float(getattr(entity.dxf, "char_height", 0.0))
+            return TextAnnotation(
+                layer=layer_name, text=text,
+                x=float(insert[0]), y=float(insert[1]),
+                height=height, kind="mtext",
+            )
+        if entity_type == "DIMENSION":
+            text = str(getattr(entity.dxf, "text", "") or "").strip()
+            # DIMENSION puede tener defpoint; uso defpoint o text_midpoint
+            try:
+                pt = entity.dxf.text_midpoint
+            except AttributeError:
+                pt = getattr(entity.dxf, "defpoint", (0, 0, 0))
+            return TextAnnotation(
+                layer=layer_name, text=text,
+                x=float(pt[0]), y=float(pt[1]),
+                height=0.0, kind="dimension",
+            )
+    except Exception:
+        return None
+    return None
+
+
+def detect_quality_issues(
+    contours: list["ParsedContour"],
+    layer_summary: dict[str, int],
+    standard_w: float = _OVERSIZED_MAX_W,
+    standard_h: float = _OVERSIZED_MAX_H,
+) -> list[str]:
+    """Heurísticas que NO requieren IA: duplicados, oversized, layers raros.
+
+    Devuelve lista de warnings agregables al `ParseResult.warnings`.
+    """
+    issues: list[str] = []
+
+    # 1) Layers sin contornos PROFILE (sólo drills/pockets/etc.) — útil saberlo
+    profile_layers: set[str] = set()
+    for c in contours:
+        if c.op_type == OperationType.PROFILE:
+            profile_layers.add(c.layer)
+    no_profile = [l for l in layer_summary if l not in profile_layers]
+    if no_profile and len(no_profile) <= 6:
+        issues.append(
+            f"Layers sin contornos PROFILE (no se convertirán a piezas): {', '.join(no_profile)}"
+        )
+    elif len(no_profile) > 6:
+        issues.append(
+            f"{len(no_profile)} layers sin contornos PROFILE (revisá clasificación)"
+        )
+
+    # 2) Piezas más grandes que la placa estándar
+    profiles = [c for c in contours if c.op_type == OperationType.PROFILE]
+    for c in profiles:
+        too_wide = c.width > standard_w and c.width > standard_h
+        too_tall = c.height > standard_w and c.height > standard_h
+        if too_wide or too_tall:
+            issues.append(
+                f"Pieza en '{c.layer}' ({c.width:.0f}×{c.height:.0f}mm) excede "
+                f"placa estándar {standard_w:.0f}×{standard_h:.0f}mm"
+            )
+
+    # 3) Contornos PROFILE duplicados exactos en mismo layer (posible error de export)
+    seen: dict[tuple, int] = {}
+    for c in profiles:
+        key = (
+            c.layer,
+            round(c.width / _DUPLICATE_TOL_MM),
+            round(c.height / _DUPLICATE_TOL_MM),
+            round(c.bbox[0] / _DUPLICATE_TOL_MM),
+            round(c.bbox[1] / _DUPLICATE_TOL_MM),
+        )
+        seen[key] = seen.get(key, 0) + 1
+    for (layer, _, _, _, _), n in seen.items():
+        if n >= 2:
+            issues.append(
+                f"{n} contornos PROFILE superpuestos en mismo lugar del layer '{layer}' "
+                f"(posible duplicado del export)"
+            )
+
+    return issues
+
+
 def parse_aspire_dxf(filepath: str, material_thickness: float = 18.0) -> ParseResult:
     """Parsea un DXF exportado por Vectric Aspire en contornos clasificados."""
     result = ParseResult(contours=[])
@@ -249,6 +366,12 @@ def parse_aspire_dxf(filepath: str, material_thickness: float = 18.0) -> ParseRe
         if entity_type in _IGNORED_TYPES:
             if entity_type not in result.unrecognized_entities:
                 result.unrecognized_entities.append(entity_type)
+            continue
+
+        if entity_type in _TEXT_TYPES:
+            ann = _extract_text_annotation(entity, layer_name)
+            if ann is not None:
+                result.text_annotations.append(ann)
             continue
 
         if entity_type not in _PROCESSABLE_TYPES:
@@ -302,5 +425,8 @@ def parse_aspire_dxf(filepath: str, material_thickness: float = 18.0) -> ParseRe
                 is_through_cut=is_through,
             )
         )
+
+    # Heurísticas post-parse — agregadas como warnings sin romper el flow.
+    result.warnings.extend(detect_quality_issues(result.contours, result.layer_summary))
 
     return result

@@ -9,6 +9,30 @@ import type {
   SavedProject,
 } from "./types";
 
+export interface OptimizeImportedRequest {
+  use_inventory?: boolean;
+  horas_mo?: number | null;
+  compare_inventory?: boolean;
+}
+
+export interface OptimizeImportedSummary {
+  sheets_without?: number;
+  sheets_with?: number;
+  offcuts_used?: number;
+  savings_ars?: number;
+  savings_pct?: number;
+  pieces_count?: number;
+  sheets_used?: number;
+}
+
+export interface OptimizeImportedResponse {
+  compare: boolean;
+  result?: PipelineResponse;
+  without_inventory?: PipelineResponse;
+  with_inventory?: PipelineResponse;
+  summary: OptimizeImportedSummary;
+}
+
 export interface OffcutStock {
   id: string;
   width: number;
@@ -65,6 +89,12 @@ export interface FurnitureImportResponse {
   uploaded_images_count: number;
   warnings: string[];
   created_at: string | null;
+}
+
+export interface AIConfigStatus {
+  has_anthropic_api_key: boolean;
+  masked_key: string | null;
+  model: string;
 }
 
 export interface Crv3dMetadata {
@@ -130,6 +160,14 @@ export const api = {
     req<CostingConfig>("/config/costing", {
       method: "PUT",
       body: JSON.stringify(cfg),
+    }),
+
+  getAIConfig: () => req<AIConfigStatus>("/config/ai"),
+
+  setAIKey: (key: string | null) =>
+    req<AIConfigStatus>("/config/ai", {
+      method: "PUT",
+      body: JSON.stringify({ anthropic_api_key: key }),
     }),
 
   // ── furniture (multipart — sin Content-Type fijo para que el browser setee el boundary) ──
@@ -208,5 +246,17 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ roles }),
     }),
+
+  optimizeImported: (id: string, body: OptimizeImportedRequest = {}) =>
+    req<OptimizeImportedResponse>(`/furniture/${id}/optimize`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  suggestRoles: (id: string) =>
+    req<{ suggestions: Record<string, string>; layers_analyzed: number; model: string }>(
+      `/furniture/${id}/suggest-roles`,
+      { method: "POST", body: JSON.stringify({}) },
+    ),
 };
 

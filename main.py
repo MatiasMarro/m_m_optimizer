@@ -66,26 +66,25 @@ class ProjectResult:
 
 
 # ---------- Pipeline ----------
-def run_pipeline(
-    furniture: Furniture,
+def run_pipeline_from_pieces(
+    pieces: List[Piece],
     *,
     standard_sheet: Optional[Sheet] = None,
     use_inventory: bool = False,
     horas_mo: Optional[float] = None,
     herrajes: Optional[List[HardwareItem]] = None,
-    edging_policy: Optional[Dict[str, Tuple[bool, bool, bool, bool]]] = None,
     dxf_path: Optional[str] = None,
+    furniture: Optional[Furniture] = None,
 ) -> ProjectResult:
-    pieces = furniture.get_pieces()
-    apply_edging_policy(pieces, edging_policy)
+    """Variante que acepta `Piece[]` directo (para muebles importados desde DXF).
 
+    `furniture` opcional: si se provee, se pasa al ProjectResult; si no, queda None
+    (ProjectResult.furniture marca la diferencia entre "paramétrico" e "importado").
+    """
     sheet = standard_sheet or Sheet(
         id="MDF18", width=STANDARD_SHEET_W, height=STANDARD_SHEET_H,
     )
 
-    # Inventory siempre activo: el optimizer persiste new_offcuts y marca
-    # consumidos. El flag use_inventory solo decide si *consumimos* retazos
-    # existentes en esta corrida.
     inventory = OffcutInventory()
     offcuts = inventory.available() if use_inventory else []
 
@@ -123,12 +122,35 @@ def run_pipeline(
         DXFExporter.export(layout, dxf_path)
 
     return ProjectResult(
-        furniture=furniture,
+        furniture=furniture,  # type: ignore[arg-type]
         pieces=pieces,
         layout=layout,
         costo=costo,
         dxf_path=dxf_path if dxf_path else None,
         warnings=warnings,
+    )
+
+
+def run_pipeline(
+    furniture: Furniture,
+    *,
+    standard_sheet: Optional[Sheet] = None,
+    use_inventory: bool = False,
+    horas_mo: Optional[float] = None,
+    herrajes: Optional[List[HardwareItem]] = None,
+    edging_policy: Optional[Dict[str, Tuple[bool, bool, bool, bool]]] = None,
+    dxf_path: Optional[str] = None,
+) -> ProjectResult:
+    pieces = furniture.get_pieces()
+    apply_edging_policy(pieces, edging_policy)
+    return run_pipeline_from_pieces(
+        pieces,
+        standard_sheet=standard_sheet,
+        use_inventory=use_inventory,
+        horas_mo=horas_mo,
+        herrajes=herrajes,
+        dxf_path=dxf_path,
+        furniture=furniture,
     )
 
 
