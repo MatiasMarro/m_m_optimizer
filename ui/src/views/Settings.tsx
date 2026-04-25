@@ -3,6 +3,7 @@ import { Sparkles } from "lucide-react";
 import { api, type AIConfigStatus } from "@/lib/api";
 import type { CostingConfig } from "@/lib/types";
 import Button from "@/components/ui/Button";
+import { useProject } from "@/store/projectStore";
 
 function Field({
   label,
@@ -35,6 +36,7 @@ function Field({
 }
 
 export default function Settings() {
+  const { setCostsMayBeStale } = useProject();
   const [cfg, setCfg] = useState<CostingConfig | null>(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -79,6 +81,7 @@ export default function Settings() {
     setMsg(null);
     try {
       await api.putConfig({ ...cfg, margen: cfg.margen / 100 });
+      setCostsMayBeStale(true);
       setMsg({ ok: true, text: "Guardado correctamente" });
       setTimeout(() => setMsg(null), 3000);
     } catch (e) {

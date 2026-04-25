@@ -20,12 +20,14 @@ interface ProjectState {
   error: string | null;
   inventoryComparison: InventoryComparison | null;
   activeProjectName: string | null;
+  costsMayBeStale: boolean;
   setSpec: (patch: Partial<FurnitureSpec>) => void;
   setResult: (r: PipelineResponse | null) => void;
   setLoading: (b: boolean) => void;
   setError: (e: string | null) => void;
   setInventoryComparison: (c: InventoryComparison | null) => void;
   setActiveProjectName: (name: string | null) => void;
+  setCostsMayBeStale: (b: boolean) => void;
   movePiece: (
     fromSheetIdx: number,
     pieceIdx: number,
@@ -53,12 +55,14 @@ export const useProject = create<ProjectState>((set) => ({
   error: null,
   inventoryComparison: null,
   activeProjectName: null,
+  costsMayBeStale: false,
   setSpec: (patch) => set((s) => ({ spec: { ...s.spec, ...patch } })),
-  setResult: (result) => set({ result }),
+  setResult: (result) => set({ result, costsMayBeStale: false }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
   setInventoryComparison: (inventoryComparison) => set({ inventoryComparison }),
   setActiveProjectName: (activeProjectName) => set({ activeProjectName }),
+  setCostsMayBeStale: (costsMayBeStale) => set({ costsMayBeStale }),
   movePiece: (fromSheetIdx, pieceIdx, toSheetIdx, x, y) =>
     set((state) => {
       if (!state.result) return state;

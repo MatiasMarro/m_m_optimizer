@@ -8,7 +8,7 @@ import { useProject } from "@/store/projectStore";
 
 export default function Export() {
   const nav = useNavigate();
-  const { spec, setResult, setLoading, setError, result } = useProject();
+  const { spec, result } = useProject();
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
@@ -30,17 +30,13 @@ export default function Export() {
     return () => document.removeEventListener("keydown", onKey);
   }, [saveModalOpen]);
 
-  const onExport = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await api.runPipeline({ furniture: spec, use_inventory: false, export_dxf: true });
-      setResult(res);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
+  const onExport = () => {
+    const a = document.createElement("a");
+    a.href = "/api/output/nesting.dxf";
+    a.download = "nesting.dxf";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
   };
 
   const openSaveModal = () => {
