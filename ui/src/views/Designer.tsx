@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, FileBox, Play, Trash2, Upload, X } from "lucide-react";
+import { CheckCircle2, FileBox, Play, Trash2, Upload, Wand2, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import InspectorPanel from "@/components/layout/InspectorPanel";
 import RoleWizardModal from "@/components/RoleWizardModal";
@@ -64,12 +64,14 @@ function relativeTime(iso: string | null): string {
 // ─── furniture card ───────────────────────────────────────────────────────────
 
 function FurnitureCard({
-  item, onDelete, onOpenRoles, onOpenPreview,
+  item, onDelete, onOpenRoles, onOpenPreview, onOptimize, optimizing,
 }: {
   item: FurnitureItem;
   onDelete: () => void;
   onOpenRoles: () => void;
   onOpenPreview: () => void;
+  onOptimize: () => void;
+  optimizing: boolean;
 }) {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [thumbError, setThumbError] = useState(false);
@@ -128,8 +130,27 @@ function FurnitureCard({
       {/* actions */}
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex items-center gap-2 border-t border-border px-3 py-2"
+        className="flex flex-col gap-1.5 border-t border-border px-3 py-2"
       >
+        <Button
+          variant="primary"
+          className="w-full justify-center text-xs"
+          onClick={onOptimize}
+          disabled={optimizing}
+          title="Convierte los contornos PROFILE a piezas y corre el nesting"
+        >
+          {optimizing ? (
+            <span className="inline-flex items-center gap-1.5">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
+              Optimizando…
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5">
+              <Wand2 size={12} /> Optimizar mueble
+            </span>
+          )}
+        </Button>
+        <div className="flex items-center gap-2">
         <Button
           variant="secondary"
           className="flex-1 justify-center text-xs"
@@ -166,6 +187,7 @@ function FurnitureCard({
             <Trash2 size={14} />
           </button>
         )}
+        </div>
       </div>
     </div>
   );
@@ -175,7 +197,10 @@ function FurnitureCard({
 
 export default function Designer() {
   const nav = useNavigate();
-  const { spec, setSpec, setResult, setLoading, setError, loading } = useProject();
+  const {
+    spec, setSpec, setResult, setLoading, setError, loading,
+    setInventoryComparison, setActiveProjectName,
+  } = useProject();
 
   // ── tabs
   const [activeTab, setActiveTab] = useState<"parametric" | "dxf">("parametric");
@@ -186,6 +211,10 @@ export default function Designer() {
 
   // ── role wizard modal
   const [wizardItem, setWizardItem] = useState<FurnitureItem | null>(null);
+
+  // ── optimize state
+  const [optimizingId, setOptimizingId] = useState<string | null>(null);
+  const [optimizeError, setOptimizeError] = useState<string | null>(null);
 
   // ── crv3d info modal
   const [crv3dInfo, setCrv3dInfo] = useState<{
@@ -279,12 +308,47 @@ export default function Designer() {
     }
   }
 
+  async function handleOptimizeImported(item: FurnitureItem) {
+    setOptimizingId(item.furniture_id);
+    setOptimizeError(null);
+    setInventoryComparison(null);
+    try {
+      const res = await api.optimizeImported(item.furniture_id, {
+        compare_inventory: true,
+      });
+      const chosen = res.with_inventory ?? res.result;
+      if (!chosen) throw new Error("Respuesta sin layout");
+      setResult(chosen);
+      if (res.compare && res.summary) {
+        setInventoryComparison({
+          fileName: item.name,
+          sheetsWithout: res.summary.sheets_without ?? 0,
+          sheetsWith: res.summary.sheets_with ?? 0,
+          offcutsUsed: res.summary.offcuts_used ?? 0,
+          savingsArs: res.summary.savings_ars ?? 0,
+          savingsPct: res.summary.savings_pct ?? 0,
+        });
+      }
+      setActiveProjectName(item.name);
+      nav("/nesting");
+    } catch (e) {
+      setOptimizeError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setOptimizingId(null);
+    }
+  }
+
   async function onOptimize() {
     setLoading(true);
     setError(null);
     try {
       const res = await api.runPipeline({ furniture: spec, use_inventory: false, export_dxf: false });
       setResult(res);
+      const name =
+        spec.tipo === "shelving"
+          ? `Estantería ${spec.ancho}×${spec.alto}`
+          : `Mueble ${spec.ancho}×${spec.alto}`;
+      setActiveProjectName(name);
       nav("/nesting");
     } catch (e) {
       setError(String(e));
@@ -336,6 +400,19 @@ export default function Designer() {
           {/* DXF tab */}
           {activeTab === "dxf" && (
             <div className="flex flex-col gap-5">
+              {optimizeError && (
+                <div className="flex items-start gap-2 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                  <span className="font-medium">Error al optimizar:</span>
+                  <span>{optimizeError}</span>
+                  <button
+                    onClick={() => setOptimizeError(null)}
+                    className="ml-auto opacity-60 hover:opacity-100"
+                    aria-label="Cerrar"
+                  >
+                    <X size={12} />
+                  </button>
+                </div>
+              )}
               {/* Drop zone */}
               <div
                 onDragOver={onDragOver}
@@ -390,6 +467,8 @@ export default function Designer() {
                       onDelete={() => void handleDelete(item.furniture_id)}
                       onOpenRoles={() => setWizardItem(item)}
                       onOpenPreview={() => setSelectedFurnitureId(item.furniture_id)}
+                      onOptimize={() => void handleOptimizeImported(item)}
+                      optimizing={optimizingId === item.furniture_id}
                     />
                   ))}
                 </div>
