@@ -48,6 +48,7 @@ export interface FurnitureItem {
   contours_count: number;
   layers: string[];
   layer_depths: Record<string, number>;
+  layer_depths_override: Record<string, number>;
   piece_roles: Record<string, string>;
   created_at: string | null;
 }
@@ -74,6 +75,7 @@ interface RawFurnitureDetail {
   thumbnail_url: string;
   material_thickness: number;
   version: number;
+  layer_depths_override?: Record<string, number>;
   pieces: FurniturePiece[];
   created_at: string | null;
 }
@@ -230,13 +232,17 @@ export const api = {
       const m = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
       layer_depths[l] = Math.round(m * 100) / 100;
     }
+    // Overrides from DB win over computed values
+    const depths_override = raw.layer_depths_override ?? {};
+    const merged_depths = { ...layer_depths, ...depths_override };
     return {
       furniture_id: raw.furniture_id,
       name: raw.name,
       thumbnail_url: raw.thumbnail_url,
       contours_count: raw.pieces.length,
       layers,
-      layer_depths,
+      layer_depths: merged_depths,
+      layer_depths_override: depths_override,
       piece_roles,
       created_at: raw.created_at,
       material_thickness: raw.material_thickness,
@@ -251,6 +257,12 @@ export const api = {
     req<{ ok: boolean }>(`/furniture/${id}/roles`, {
       method: "PUT",
       body: JSON.stringify({ roles }),
+    }),
+
+  updateLayerDepths: (id: string, depths: Record<string, number>) =>
+    req<{ ok: boolean }>(`/furniture/${id}/layer_depths`, {
+      method: "PUT",
+      body: JSON.stringify({ depths }),
     }),
 
   optimizeImported: (id: string, body: OptimizeImportedRequest = {}) =>

@@ -47,6 +47,14 @@ export default function RoleWizardModal({
     for (const l of layers) init[l] = initialRoles[l] ?? "";
     return init;
   });
+  const [depths, setDepths] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const l of layers) {
+      const v = layerDepths?.[l];
+      init[l] = v !== undefined ? String(v) : "";
+    }
+    return init;
+  });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [suggesting, setSuggesting] = useState(false);
@@ -72,6 +80,13 @@ export default function RoleWizardModal({
     setError(null);
     try {
       await api.updateFurnitureRoles(furnitureId, roles);
+      // Persistir overrides de profundidad (solo los que tienen valor numérico)
+      const depthsToSave: Record<string, number> = {};
+      for (const l of layers) {
+        const v = parseFloat(depths[l]);
+        if (!isNaN(v) && v >= 0) depthsToSave[l] = v;
+      }
+      await api.updateLayerDepths(furnitureId, depthsToSave);
       onSaved();
       onClose();
     } catch (e) {
@@ -180,7 +195,6 @@ export default function RoleWizardModal({
           ) : (
             <div className="flex flex-col gap-2">
               {layers.map((layer, i) => {
-                const depth = layerDepths?.[layer];
                 return (
                 <div
                   key={layer}
@@ -193,11 +207,22 @@ export default function RoleWizardModal({
                     >
                       {layer}
                     </div>
-                    {depth !== undefined && depth > 0 && (
-                      <div className="mt-0.5 font-mono text-[10px] text-muted">
-                        Z = {depth} mm
-                      </div>
-                    )}
+                  </div>
+                  {/* Profundidad editable */}
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={depths[layer] ?? ""}
+                      onChange={(e) =>
+                        setDepths((prev) => ({ ...prev, [layer]: e.target.value }))
+                      }
+                      placeholder="Z"
+                      title="Profundidad Z (mm)"
+                      className="h-8 w-16 rounded border border-border bg-surface px-2 text-right font-mono text-xs text-text focus:outline-none focus:ring-2 focus:ring-primary/50"
+                    />
+                    <span className="text-[10px] text-muted">mm</span>
                   </div>
                   <select
                     ref={i === 0 ? firstSelectRef : undefined}

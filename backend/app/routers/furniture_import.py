@@ -355,13 +355,19 @@ async def list_furniture() -> list[dict]:
         except (TypeError, json.JSONDecodeError):
             piece_roles = {}
         layer_depths = _compute_layer_depths(contours)
+        try:
+            depths_override = json.loads(r.layer_depths_override) if r.layer_depths_override else {}
+        except (TypeError, json.JSONDecodeError):
+            depths_override = {}
+        merged_depths = {**layer_depths, **depths_override}
         out.append({
             "furniture_id": r.id,
             "name": r.name,
             "thumbnail_url": f"/api/furniture/{r.id}/thumbnail",
             "contours_count": contours_count,
             "layers": layers,
-            "layer_depths": layer_depths,
+            "layer_depths": merged_depths,
+            "layer_depths_override": depths_override,
             "piece_roles": piece_roles,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         })
@@ -395,15 +401,43 @@ async def get_furniture(furniture_id: str) -> dict:
             "quantity": p.quantity,
         })
 
+    try:
+        depths_override = json.loads(row.layer_depths_override) if row.layer_depths_override else {}
+    except (TypeError, json.JSONDecodeError):
+        depths_override = {}
+
     return {
         "furniture_id": row.id,
         "name": row.name,
         "thumbnail_url": f"/api/furniture/{row.id}/thumbnail",
         "material_thickness": row.material_thickness,
         "version": row.version,
+        "layer_depths_override": depths_override,
         "pieces": pieces,
         "created_at": row.created_at.isoformat() if row.created_at else None,
     }
+
+
+@router.put("/{furniture_id}/layer_depths")
+async def put_layer_depths(
+    furniture_id: str,
+    body: dict = Body(...),
+) -> dict:
+    """Persiste overrides de profundidad por layer (mm). Body: {depths: {layer: mm}}"""
+    if not _UUID_RE.match(furniture_id):
+        raise HTTPException(status_code=400, detail="furniture_id inv\u00e1lido")
+    depths = body.get("depths") if isinstance(body, dict) else None
+    if not isinstance(depths, dict):
+        raise HTTPException(status_code=422, detail="body.depths debe ser {layer: mm}")
+    # Validar que todos los valores sean numéricos
+    try:
+        depths_float = {k: float(v) for k, v in depths.items()}
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail=f"Valor no num\u00e9rico en depths: {exc}") from exc
+    ok = furniture_repo.update_layer_depths(furniture_id, depths_float)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Furniture no encontrado")
+    return {"ok": True}
 
 
 @router.put("/{furniture_id}/roles")

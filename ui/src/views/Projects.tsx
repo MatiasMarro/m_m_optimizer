@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { Plus, FolderOpen, Trash2 } from "lucide-react";
+import { Plus, FolderOpen, Trash2, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { api } from "@/lib/api";
 import { useProject } from "@/store/projectStore";
@@ -20,6 +21,8 @@ export default function Projects() {
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmTarget, setConfirmTarget] = useState<{ id: string; nombre: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -52,13 +55,21 @@ export default function Projects() {
   };
 
   const onDelete = async (id: string, nombre: string) => {
-    if (!confirm(`¿Eliminar el proyecto "${nombre}"?`)) return;
+    setConfirmTarget({ id, nombre });
+  };
+
+  const confirmDelete = async () => {
+    if (!confirmTarget) return;
+    setDeleting(true);
     setError(null);
     try {
-      await api.deleteProject(id);
-      setProjects((ps) => ps.filter((p) => p.id !== id));
+      await api.deleteProject(confirmTarget.id);
+      setProjects((ps) => ps.filter((p) => p.id !== confirmTarget.id));
+      setConfirmTarget(null);
     } catch (e) {
       setError(String(e));
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -120,6 +131,52 @@ export default function Projects() {
           </table>
         </div>
       )}
+
+      {/* Confirm delete modal */}
+      {confirmTarget &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setConfirmTarget(null); }}
+            aria-hidden="true"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="confirm-delete-title"
+              className="relative flex w-full max-w-sm flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
+            >
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <h2 id="confirm-delete-title" className="text-sm font-semibold text-text">
+                  Eliminar proyecto
+                </h2>
+                <button
+                  onClick={() => setConfirmTarget(null)}
+                  aria-label="Cerrar"
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-text"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="px-5 py-4 text-sm text-text">
+                <p>
+                  ¿Eliminar el proyecto{" "}
+                  <span className="font-semibold">"{confirmTarget.nombre}"</span>?
+                </p>
+                <p className="mt-1 text-xs text-muted">Esta acción no se puede deshacer.</p>
+              </div>
+              <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+                <Button variant="ghost" onClick={() => setConfirmTarget(null)} disabled={deleting}>
+                  Cancelar
+                </Button>
+                <Button variant="danger" onClick={() => void confirmDelete()} disabled={deleting}>
+                  {deleting ? "Eliminando…" : "Eliminar"}
+                </Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }
