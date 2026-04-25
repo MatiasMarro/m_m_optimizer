@@ -19,11 +19,29 @@ htmlcov/
 data/config.json
 data/offcuts.json
 data/projects/
+data/furniture.db
+data/furniture/
 
 # Build / output
 output/
 dist/
 build/
+
+# PyInstaller
+*.spec.bak
+__pycache__/launcher*
+
+# Frontend build
+ui/dist/
+ui/**/*.js
+ui/**/*.d.ts
+ui/**/*.tsbuildinfo
+
+# Instalador generado (artefactos de Inno Setup)
+installer/output/
+
+# Claude Code local settings
+.claude/
 
 # Misc
 image.png

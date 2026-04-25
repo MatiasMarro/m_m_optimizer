@@ -1,8 +1,12 @@
+import { useNavigate } from "react-router-dom";
+import { ArrowRight, DollarSign } from "lucide-react";
+import Button from "@/components/ui/Button";
 import { useProject } from "@/store/projectStore";
 
 const ARS = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
 
 export default function Costs() {
+  const nav = useNavigate();
   const { result } = useProject();
   const c = result?.costo;
 
@@ -10,8 +14,19 @@ export default function Costs() {
     return (
       <div className="h-full overflow-auto p-6">
         <h1 className="mb-4 text-xl font-semibold">Costos</h1>
-        <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
-          Optimiza un proyecto para ver el breakdown.
+        <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-lg border border-border bg-surface p-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-muted">
+            <DollarSign size={22} />
+          </div>
+          <div>
+            <p className="text-base font-medium text-text">Todavía no hay costos</p>
+            <p className="mt-1 text-sm text-muted">
+              Optimizá un proyecto para ver el breakdown.
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => nav("/designer")}>
+            <ArrowRight size={16} /> Ir al Diseñador
+          </Button>
         </div>
       </div>
     );

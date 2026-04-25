@@ -21,7 +21,12 @@ const items = [
   { to: "/settings", icon: Settings, label: "Ajustes" },
 ];
 
-export default function RailNav() {
+interface Props {
+  /** Returns true to prevent navigation. */
+  onIntercept?: (route: string) => boolean;
+}
+
+export default function RailNav({ onIntercept }: Props) {
   return (
     <nav className="flex flex-col items-center gap-1 border-r border-border bg-surface py-2">
       {items.map(({ to, icon: Icon, label }) => (
@@ -30,6 +35,11 @@ export default function RailNav() {
           to={to}
           end={to === "/"}
           title={label}
+          onClick={(e) => {
+            if (onIntercept && onIntercept(to)) {
+              e.preventDefault();
+            }
+          }}
           className={({ isActive }) =>
             `flex h-10 w-10 items-center justify-center rounded transition-colors ${
               isActive

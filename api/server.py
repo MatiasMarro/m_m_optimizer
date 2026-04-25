@@ -3,18 +3,24 @@
 """FastAPI wrapper sobre `run_pipeline`. Corre en :8000.
 
     uvicorn api.server:app --reload --port 8000
+
+En modo .exe, también sirve el build estático de React desde ui/dist/.
 """
 from __future__ import annotations
 
 import json
+import os
+import sys
 import uuid
 from dataclasses import asdict, is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from costing import HardwareItem
 from main import run_pipeline
@@ -22,6 +28,8 @@ from nesting import OffcutInventory
 from parametric import Cabinet, ShelvingUnit
 
 from .schemas import (
+    AIConfigStatus,
+    AIConfigUpdate,
     CostDTO,
     CostingConfig,
     LayoutDTO,
@@ -38,6 +46,20 @@ from .schemas import (
 
 PROJECTS_DIR = Path(__file__).parent.parent / "data" / "projects"
 CONFIG_PATH = Path(__file__).parent.parent / "data" / "config.json"
+
+# Cuando se ejecuta como .exe empaquetado con PyInstaller, los archivos
+# estáticos viven en sys._MEIPASS. En desarrollo usan la ruta normal.
+def _base_dir() -> Path:
+    if getattr(sys, "frozen", False):
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    return Path(__file__).parent.parent
+
+_UI_DIST = _base_dir() / "ui" / "dist"
+
+# Si el launcher sobreescribió MM_DATA_DIR (modo exe), usarlo para data mutable.
+_data_root = Path(os.environ["MM_DATA_DIR"]) if "MM_DATA_DIR" in os.environ else Path(__file__).parent.parent / "data"
+PROJECTS_DIR = _data_root / "projects"
+CONFIG_PATH = _data_root / "config.json"
 
 _COSTING_DEFAULTS: dict = {
     "precio_placa_mdf18": 45000.0,
@@ -66,6 +88,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+from backend.app.routers.furniture_import import router as furniture_router
+app.include_router(furniture_router)
+
+from backend.app.db import init_db
+init_db()
 
 
 def _build_furniture(spec):
@@ -250,5 +278,75 @@ def get_costing_config():
 @app.put("/config/costing", response_model=CostingConfig)
 def put_costing_config(cfg: CostingConfig):
     CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    CONFIG_PATH.write_text(cfg.model_dump_json(indent=2), encoding="utf-8")
+    # Preserve sensitive fields (anthropic_api_key) when overwriting
+    existing: dict = {}
+    if CONFIG_PATH.exists():
+        try:
+            existing = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            existing = {}
+    merged = {**cfg.model_dump(), "anthropic_api_key": existing.get("anthropic_api_key")}
+    if not merged["anthropic_api_key"]:
+        merged.pop("anthropic_api_key", None)
+    CONFIG_PATH.write_text(json.dumps(merged, indent=2, ensure_ascii=False), encoding="utf-8")
     return cfg
+
+
+def _read_full_config() -> dict:
+    if CONFIG_PATH.exists():
+        try:
+            return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
+    return {}
+
+
+def _mask_key(key: Optional[str]) -> Optional[str]:
+    if not key or len(key) < 8:
+        return None
+    return f"{key[:7]}…{key[-4:]}"
+
+
+@app.get("/config/ai", response_model=AIConfigStatus)
+def get_ai_config():
+    """Estado de la config de IA. Nunca devuelve la key en plano."""
+    cfg = _read_full_config()
+    key = cfg.get("anthropic_api_key") or os.environ.get("ANTHROPIC_API_KEY")
+    return AIConfigStatus(
+        has_anthropic_api_key=bool(key),
+        masked_key=_mask_key(key),
+    )
+
+
+@app.put("/config/ai", response_model=AIConfigStatus)
+def put_ai_config(body: AIConfigUpdate):
+    """Setea o limpia la API key. `null`/`""` la borra del config (env queda intacto)."""
+    cfg = _read_full_config()
+    new_key = (body.anthropic_api_key or "").strip() or None
+    if new_key:
+        cfg["anthropic_api_key"] = new_key
+    else:
+        cfg.pop("anthropic_api_key", None)
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    CONFIG_PATH.write_text(json.dumps(cfg, indent=2, ensure_ascii=False), encoding="utf-8")
+    effective = new_key or os.environ.get("ANTHROPIC_API_KEY")
+    return AIConfigStatus(
+        has_anthropic_api_key=bool(effective),
+        masked_key=_mask_key(effective),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Static files + SPA catch-all (activo solo cuando ui/dist existe)
+# En desarrollo, Vite corre en :5173 y este bloque no interfiere.
+# En el .exe, sirve el build de React directamente desde FastAPI.
+# ---------------------------------------------------------------------------
+if _UI_DIST.exists():
+    # Archivos estáticos de Vite (assets JS/CSS)
+    app.mount("/assets", StaticFiles(directory=str(_UI_DIST / "assets")), name="assets")
+
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        """Devuelve index.html para cualquier ruta no-API (SPA routing)."""
+        index = _UI_DIST / "index.html"
+        return FileResponse(str(index))

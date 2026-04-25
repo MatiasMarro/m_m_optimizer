@@ -4,15 +4,28 @@ import { create } from "zustand";
 import type { FurnitureSpec, PipelineResponse } from "@/lib/types";
 import { computeSheetEfficiency } from "@/lib/nestingUtils";
 
+export interface InventoryComparison {
+  fileName: string;
+  sheetsWithout: number;
+  sheetsWith: number;
+  offcutsUsed: number;
+  savingsArs: number;
+  savingsPct: number;
+}
+
 interface ProjectState {
   spec: FurnitureSpec;
   result: PipelineResponse | null;
   loading: boolean;
   error: string | null;
+  inventoryComparison: InventoryComparison | null;
+  activeProjectName: string | null;
   setSpec: (patch: Partial<FurnitureSpec>) => void;
   setResult: (r: PipelineResponse | null) => void;
   setLoading: (b: boolean) => void;
   setError: (e: string | null) => void;
+  setInventoryComparison: (c: InventoryComparison | null) => void;
+  setActiveProjectName: (name: string | null) => void;
   movePiece: (
     fromSheetIdx: number,
     pieceIdx: number,
@@ -38,10 +51,14 @@ export const useProject = create<ProjectState>((set) => ({
   result: null,
   loading: false,
   error: null,
+  inventoryComparison: null,
+  activeProjectName: null,
   setSpec: (patch) => set((s) => ({ spec: { ...s.spec, ...patch } })),
   setResult: (result) => set({ result }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
+  setInventoryComparison: (inventoryComparison) => set({ inventoryComparison }),
+  setActiveProjectName: (activeProjectName) => set({ activeProjectName }),
   movePiece: (fromSheetIdx, pieceIdx, toSheetIdx, x, y) =>
     set((state) => {
       if (!state.result) return state;
@@ -74,5 +91,12 @@ export const useProject = create<ProjectState>((set) => ({
         },
       };
     }),
-  reset: () => set({ spec: defaultSpec, result: null, error: null }),
+  reset: () =>
+    set({
+      spec: defaultSpec,
+      result: null,
+      error: null,
+      inventoryComparison: null,
+      activeProjectName: null,
+    }),
 }));
