@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, DollarSign } from "lucide-react";
+import { ArrowRight, DollarSign, TriangleAlert } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { useProject } from "@/store/projectStore";
 
@@ -7,7 +7,7 @@ const ARS = (n: number) => "$" + Math.round(n).toLocaleString("es-AR");
 
 export default function Costs() {
   const nav = useNavigate();
-  const { result } = useProject();
+  const { result, costsMayBeStale } = useProject();
   const c = result?.costo;
 
   if (!c) {
@@ -44,6 +44,17 @@ export default function Costs() {
   return (
     <div className="h-full overflow-auto p-6">
       <h1 className="mb-4 text-xl font-semibold">Costos</h1>
+      {costsMayBeStale && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-warning/50 bg-warning/10 px-4 py-2.5 text-sm">
+          <span className="flex items-center gap-2 text-warning">
+            <TriangleAlert size={15} />
+            Las tarifas cambiaron desde la última optimización.
+          </span>
+          <Button variant="ghost" onClick={() => nav("/designer")} className="text-xs">
+            Recalcular
+          </Button>
+        </div>
+      )}
       <div className="max-w-md rounded-lg border border-border bg-surface">
         <table className="w-full text-sm">
           <tbody>

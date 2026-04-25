@@ -141,6 +141,12 @@ export const api = {
 
   listOffcuts: () => req<OffcutStock[]>("/inventory/offcuts"),
 
+  addOffcut: (ancho: number, alto: number) =>
+    req<{ id: string; ancho: number; alto: number; usado: boolean }>("/inventory/offcuts", {
+      method: "POST",
+      body: JSON.stringify({ ancho, alto }),
+    }),
+
   saveProject: (nombre: string, spec: FurnitureSpec, result: PipelineResponse) =>
     req<ProjectMeta>("/projects", {
       method: "POST",

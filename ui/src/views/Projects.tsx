@@ -16,7 +16,7 @@ function formatDate(iso: string) {
 
 export default function Projects() {
   const nav = useNavigate();
-  const { setSpec, setResult } = useProject();
+  const { setSpec, setResult, setActiveProjectName } = useProject();
   const [projects, setProjects] = useState<ProjectMeta[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,6 +44,7 @@ export default function Projects() {
       const saved = await api.getProject(id);
       setSpec(saved.spec);
       setResult(saved.result);
+      setActiveProjectName(saved.meta.nombre);
       nav("/nesting");
     } catch (e) {
       setError(String(e));

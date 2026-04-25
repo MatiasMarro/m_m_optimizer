@@ -147,6 +147,23 @@ def list_offcuts():
     return out
 
 
+from nesting.models import Sheet as NestingSheet
+
+@app.post("/inventory/offcuts", status_code=201)
+def add_offcut(body: dict):
+    """Agrega un retazo manual. Body: {ancho: float, alto: float}"""
+    ancho = float(body.get("ancho", 0))
+    alto = float(body.get("alto", 0))
+    if ancho < 1 or alto < 1:
+        raise HTTPException(status_code=400, detail="ancho y alto deben ser > 0")
+    inv = OffcutInventory()
+    new_id = inv.next_id()
+    sheet = NestingSheet(id=new_id, width=ancho, height=alto, is_offcut=True)
+    inv.add(sheet)
+    inv.save()
+    return {"id": new_id, "ancho": ancho, "alto": alto, "usado": False}
+
+
 @app.post("/projects", response_model=ProjectMeta)
 def save_project(req: SaveProjectRequest) -> ProjectMeta:
     PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -267,6 +284,21 @@ def _serialize(result) -> PipelineResponse:
     return PipelineResponse(
         pieces=pieces, layout=layout, costo=costo,
         dxf_path=result.dxf_path, warnings=result.warnings,
+    )
+
+
+_OUTPUT_DIR = Path(__file__).parent.parent / "output"
+
+@app.get("/output/nesting.dxf", include_in_schema=False)
+def download_dxf():
+    """Descarga el último DXF generado."""
+    dxf_path = _OUTPUT_DIR / "nesting.dxf"
+    if not dxf_path.exists():
+        raise HTTPException(status_code=404, detail="DXF no generado aún. Exportá primero desde el Diseñador.")
+    return FileResponse(
+        str(dxf_path),
+        media_type="application/dxf",
+        filename="nesting.dxf",
     )
 
 

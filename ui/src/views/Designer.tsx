@@ -342,7 +342,7 @@ export default function Designer() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.runPipeline({ furniture: spec, use_inventory: false, export_dxf: false });
+      const res = await api.runPipeline({ furniture: spec, use_inventory: false, export_dxf: true });
       setResult(res);
       const name =
         spec.tipo === "shelving"
