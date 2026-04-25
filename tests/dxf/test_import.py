@@ -78,6 +78,21 @@ def test_import_returns_layers(dxf_file):
     assert len(body["layers"]) > 0
 
 
+def test_list_furniture_includes_layer_depths(dxf_file):
+    _upload_dxf(dxf_file)
+    r = client.get("/api/furniture")
+    assert r.status_code == 200
+    items = r.json()
+    assert len(items) >= 1
+    item = items[0]
+    assert "layer_depths" in item
+    assert isinstance(item["layer_depths"], dict)
+    # El fixture tiene layer "Profile" con elevation=18 y "Pocket_cajeo" con elevation=-8
+    depths = {k.lower(): v for k, v in item["layer_depths"].items()}
+    assert any(abs(v - 18.0) < 0.5 for v in depths.values()), depths
+    assert any(abs(v - 8.0) < 0.5 for v in depths.values()), depths
+
+
 def test_thumbnail_endpoint(dxf_file):
     r = _upload_dxf(dxf_file)
     assert r.status_code == 200

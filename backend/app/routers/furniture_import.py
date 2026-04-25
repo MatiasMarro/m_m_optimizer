@@ -1,6 +1,7 @@
 """Router FastAPI para import de DXF + imágenes de referencia de muebles."""
 from __future__ import annotations
 
+import base64
 import json
 import re
 import shutil
@@ -17,6 +18,12 @@ from fastapi import APIRouter, Body, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from backend.app.db import init_db
+from backend.app.dxf.crv_parser import (
+    Crv3dExportRequiredError,
+    extract_preview_gif,
+    is_crv3d_file,
+    parse_aspire_crv3d_metadata,
+)
 from backend.app.dxf.parser import parse_aspire_dxf
 from backend.app.repositories import furniture_repo
 
@@ -48,12 +55,19 @@ def setup_furniture_directory(furniture_id: str) -> Path:
 
 
 def save_dxf_file(content: bytes, filename: str, furniture_dir: Path) -> str:
-    """Valida extensión .dxf y guarda el archivo como original.dxf."""
-    if not filename.lower().endswith(".dxf"):
-        raise HTTPException(status_code=400, detail="Archivo DXF con extensión inválida")
-    out_path = furniture_dir / "original.dxf"
-    out_path.write_bytes(content)
-    return "original.dxf"
+    """Valida extensión .dxf/.crv3d y guarda con su nombre canónico."""
+    lower = filename.lower()
+    if lower.endswith(".dxf"):
+        out_name = "original.dxf"
+    elif lower.endswith(".crv3d"):
+        out_name = "original.crv3d"
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Extensión inválida. Se aceptan .dxf o .crv3d (Vectric Aspire)",
+        )
+    (furniture_dir / out_name).write_bytes(content)
+    return out_name
 
 
 async def save_reference_images(
@@ -163,6 +177,35 @@ def _contour_to_preview(c) -> dict:
     }
 
 
+def _compute_layer_depths(contours: list) -> dict[str, float]:
+    """Mediana de profundidad por layer (mm). Robusto a outliers y contornos vacíos."""
+    by_layer: dict[str, list[float]] = {}
+    for c in contours or []:
+        if isinstance(c, dict):
+            layer = c.get("layer")
+            depth = c.get("depth")
+        else:
+            layer = getattr(c, "layer", None)
+            depth = getattr(c, "depth", None)
+        if not layer or depth is None:
+            continue
+        try:
+            by_layer.setdefault(layer, []).append(float(depth))
+        except (TypeError, ValueError):
+            continue
+    out: dict[str, float] = {}
+    for layer, depths in by_layer.items():
+        depths_sorted = sorted(depths)
+        n = len(depths_sorted)
+        median = (
+            depths_sorted[n // 2]
+            if n % 2
+            else (depths_sorted[n // 2 - 1] + depths_sorted[n // 2]) / 2
+        )
+        out[layer] = round(median, 2)
+    return out
+
+
 router = APIRouter(prefix="/api/furniture", tags=["furniture-import"])
 
 
@@ -196,6 +239,35 @@ async def import_furniture(
     dxf_name = save_dxf_file(dxf_bytes, dxf_file.filename or "", furniture_dir)
     dxf_path = furniture_dir / dxf_name
 
+    if dxf_name.endswith(".crv3d") or is_crv3d_file(str(dxf_path)):
+        try:
+            meta = parse_aspire_crv3d_metadata(str(dxf_path))
+            gif_bytes = extract_preview_gif(str(dxf_path))
+        except Exception as e:
+            shutil.rmtree(furniture_dir, ignore_errors=True)
+            raise HTTPException(status_code=400, detail=f"No se pudo leer .crv3d: {e}")
+        shutil.rmtree(furniture_dir, ignore_errors=True)
+        preview_b64 = base64.b64encode(gif_bytes).decode("ascii") if gif_bytes else None
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "crv3d_not_supported",
+                "message": (
+                    "Archivo .crv3d detectado. El formato nativo de Vectric Aspire "
+                    "no es parseable directamente. Exportá como DXF desde Aspire: "
+                    "File → Export → Vectors as DXF, y volvé a importar."
+                ),
+                "metadata": {
+                    "aspire_version": meta.aspire_version,
+                    "material_width_mm": meta.material_width_mm,
+                    "material_height_mm": meta.material_height_mm,
+                    "material_thickness_mm": meta.material_thickness_mm,
+                    "layer_names": meta.layer_names,
+                },
+                "preview_gif_base64": preview_b64,
+            },
+        )
+
     images_count, warnings = await save_reference_images(reference_images, furniture_dir)
 
     thumb_path = furniture_dir / "thumb.jpg"
@@ -204,6 +276,9 @@ async def import_furniture(
 
     try:
         parsed = parse_aspire_dxf(str(dxf_path), material_thickness)
+    except Crv3dExportRequiredError as e:
+        shutil.rmtree(furniture_dir, ignore_errors=True)
+        raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"No se pudo parsear DXF: {e}")
 
@@ -263,17 +338,20 @@ async def list_furniture() -> list[dict]:
         except (TypeError, json.JSONDecodeError):
             parsed = {}
         layers = list((parsed.get("layer_summary") or {}).keys())
-        contours_count = len(parsed.get("contours") or [])
+        contours = parsed.get("contours") or []
+        contours_count = len(contours)
         try:
             piece_roles = json.loads(r.piece_roles) if r.piece_roles else {}
         except (TypeError, json.JSONDecodeError):
             piece_roles = {}
+        layer_depths = _compute_layer_depths(contours)
         out.append({
             "furniture_id": r.id,
             "name": r.name,
             "thumbnail_url": f"/api/furniture/{r.id}/thumbnail",
             "contours_count": contours_count,
             "layers": layers,
+            "layer_depths": layer_depths,
             "piece_roles": piece_roles,
             "created_at": r.created_at.isoformat() if r.created_at else None,
         })

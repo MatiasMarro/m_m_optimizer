@@ -26,6 +26,7 @@ interface Props {
   furnitureName: string;
   layers: string[];
   initialRoles: Record<string, string>;
+  layerDepths?: Record<string, number>;
   onClose: () => void;
   onSaved: () => void;
 }
@@ -37,6 +38,7 @@ export default function RoleWizardModal({
   furnitureName,
   layers,
   initialRoles,
+  layerDepths,
   onClose,
   onSaved,
 }: Props) {
@@ -121,17 +123,26 @@ export default function RoleWizardModal({
             </p>
           ) : (
             <div className="flex flex-col gap-2">
-              {layers.map((layer, i) => (
+              {layers.map((layer, i) => {
+                const depth = layerDepths?.[layer];
+                return (
                 <div
                   key={layer}
                   className="flex items-center gap-3 rounded border border-border bg-surface-2 px-3 py-2"
                 >
-                  <span
-                    className="min-w-0 flex-1 truncate font-mono text-xs text-text"
-                    title={layer}
-                  >
-                    {layer}
-                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div
+                      className="truncate font-mono text-xs text-text"
+                      title={layer}
+                    >
+                      {layer}
+                    </div>
+                    {depth !== undefined && depth > 0 && (
+                      <div className="mt-0.5 font-mono text-[10px] text-muted">
+                        Z = {depth} mm
+                      </div>
+                    )}
+                  </div>
                   <select
                     ref={i === 0 ? firstSelectRef : undefined}
                     value={roles[layer] ?? ""}
@@ -147,7 +158,8 @@ export default function RoleWizardModal({
                     ))}
                   </select>
                 </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

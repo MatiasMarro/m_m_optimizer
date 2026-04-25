@@ -7,7 +7,7 @@ import InspectorPanel from "@/components/layout/InspectorPanel";
 import RoleWizardModal from "@/components/RoleWizardModal";
 import DxfPreview from "@/components/DxfPreview";
 import { useProject } from "@/store/projectStore";
-import { api, type FurnitureItem } from "@/lib/api";
+import { api, Crv3dNotSupportedError, type Crv3dMetadata, type FurnitureItem } from "@/lib/api";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -187,6 +187,13 @@ export default function Designer() {
   // ── role wizard modal
   const [wizardItem, setWizardItem] = useState<FurnitureItem | null>(null);
 
+  // ── crv3d info modal
+  const [crv3dInfo, setCrv3dInfo] = useState<{
+    fileName: string;
+    metadata: Crv3dMetadata;
+    previewGifBase64: string | null;
+  } | null>(null);
+
   // ── preview modal
   const [selectedFurnitureId, setSelectedFurnitureId] = useState<string | null>(null);
   const selectedFurniture =
@@ -226,13 +233,14 @@ export default function Designer() {
   }
 
   function handleFileSelected(file: File) {
-    if (!file.name.toLowerCase().endsWith(".dxf")) {
-      setUploadError("Solo se aceptan archivos .dxf");
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".dxf") && !lower.endsWith(".crv3d")) {
+      setUploadError("Solo se aceptan archivos .dxf o .crv3d");
       return;
     }
     setUploadError(null);
     setPendingFile(file);
-    if (!importName) setImportName(file.name.replace(/\.dxf$/i, ""));
+    if (!importName) setImportName(file.name.replace(/\.(dxf|crv3d)$/i, ""));
   }
 
   async function handleImport() {
@@ -245,7 +253,17 @@ export default function Designer() {
       setImportName("");
       await loadFurniture();
     } catch (e) {
-      setUploadError(String(e));
+      if (e instanceof Crv3dNotSupportedError) {
+        setCrv3dInfo({
+          fileName: pendingFile.name,
+          metadata: e.metadata,
+          previewGifBase64: e.previewGifBase64,
+        });
+        setPendingFile(null);
+        setImportName("");
+      } else {
+        setUploadError(String(e));
+      }
     } finally {
       setUploading(false);
     }
@@ -338,10 +356,12 @@ export default function Designer() {
                 ) : (
                   <>
                     <p className="text-sm font-medium">
-                      {isDragging ? "Soltá el archivo aquí" : "Arrastrá un DXF o hacé clic para seleccionar"}
+                      {isDragging ? "Soltá el archivo aquí" : "Arrastrá un DXF o .crv3d, o hacé clic para seleccionar"}
                     </p>
                     {!hasItems && (
-                      <p className="text-xs opacity-70">Exportado desde Vectric Aspire · .dxf</p>
+                      <p className="text-xs opacity-70">
+                        Vectric Aspire · .dxf (recomendado) o .crv3d (mostramos metadata)
+                      </p>
                     )}
                   </>
                 )}
@@ -349,7 +369,7 @@ export default function Designer() {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".dxf"
+                accept=".dxf,.crv3d"
                 className="hidden"
                 onChange={(e) => {
                   const f = e.target.files?.[0];
@@ -463,6 +483,7 @@ export default function Designer() {
           furnitureName={wizardItem.name}
           layers={wizardItem.layers}
           initialRoles={wizardItem.piece_roles}
+          layerDepths={wizardItem.layer_depths}
           onClose={() => setWizardItem(null)}
           onSaved={() => void loadFurniture()}
         />
@@ -511,6 +532,108 @@ export default function Designer() {
                   furnitureId={selectedFurniture.furniture_id}
                   className="aspect-square w-full max-w-[70vh]"
                 />
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
+
+      {/* .crv3d info modal */}
+      {crv3dInfo &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setCrv3dInfo(null);
+            }}
+            aria-hidden="true"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="crv3d-info-title"
+              className="relative flex max-h-[90vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+                <div className="min-w-0">
+                  <h2 id="crv3d-info-title" className="truncate text-sm font-semibold text-text">
+                    Archivo .crv3d detectado
+                  </h2>
+                  <p className="mt-0.5 truncate text-xs text-muted" title={crv3dInfo.fileName}>
+                    {crv3dInfo.fileName}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setCrv3dInfo(null)}
+                  aria-label="Cerrar"
+                  className="flex h-7 w-7 shrink-0 items-center justify-center rounded text-muted transition-colors hover:bg-surface-2 hover:text-text"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="flex flex-col gap-4 overflow-auto p-5">
+                <div className="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-text">
+                  <p className="font-medium">El formato nativo de Aspire no es parseable.</p>
+                  <p className="mt-1 text-muted">
+                    Exportá como DXF desde Aspire:{" "}
+                    <span className="font-mono text-text">File → Export → Vectors as DXF</span>{" "}
+                    y volvé a importar el .dxf.
+                  </p>
+                </div>
+
+                <div className="grid gap-4 sm:grid-cols-[160px_1fr]">
+                  {crv3dInfo.previewGifBase64 ? (
+                    <img
+                      src={`data:image/gif;base64,${crv3dInfo.previewGifBase64}`}
+                      alt="Preview Aspire"
+                      className="h-40 w-40 rounded border border-border bg-white object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-40 w-40 items-center justify-center rounded border border-dashed border-border text-xs text-muted">
+                      sin preview
+                    </div>
+                  )}
+                  <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 self-start text-xs">
+                    <dt className="text-muted">Versión</dt>
+                    <dd className="font-mono text-text">
+                      {crv3dInfo.metadata.aspire_version ?? "—"}
+                    </dd>
+                    <dt className="text-muted">Material</dt>
+                    <dd className="font-mono text-text">
+                      {crv3dInfo.metadata.material_width_mm && crv3dInfo.metadata.material_height_mm
+                        ? `${crv3dInfo.metadata.material_width_mm} × ${crv3dInfo.metadata.material_height_mm} mm`
+                        : "—"}
+                    </dd>
+                    <dt className="text-muted">Espesor</dt>
+                    <dd className="font-mono text-text">
+                      {crv3dInfo.metadata.material_thickness_mm
+                        ? `${crv3dInfo.metadata.material_thickness_mm} mm`
+                        : "—"}
+                    </dd>
+                    <dt className="text-muted">Layers</dt>
+                    <dd className="text-text">
+                      {crv3dInfo.metadata.layer_names.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {crv3dInfo.metadata.layer_names.map((n) => (
+                            <span
+                              key={n}
+                              className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-[10px]"
+                            >
+                              {n}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+              <div className="flex justify-end border-t border-border px-5 py-3">
+                <Button variant="primary" onClick={() => setCrv3dInfo(null)}>
+                  Entendido
+                </Button>
               </div>
             </div>
           </div>,

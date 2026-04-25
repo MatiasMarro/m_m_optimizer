@@ -23,6 +23,7 @@ export interface FurnitureItem {
   thumbnail_url: string;
   contours_count: number;
   layers: string[];
+  layer_depths: Record<string, number>;
   piece_roles: Record<string, string>;
   created_at: string | null;
 }
@@ -64,6 +65,25 @@ export interface FurnitureImportResponse {
   uploaded_images_count: number;
   warnings: string[];
   created_at: string | null;
+}
+
+export interface Crv3dMetadata {
+  aspire_version: string | null;
+  material_width_mm: number | null;
+  material_height_mm: number | null;
+  material_thickness_mm: number | null;
+  layer_names: string[];
+}
+
+export class Crv3dNotSupportedError extends Error {
+  metadata: Crv3dMetadata;
+  previewGifBase64: string | null;
+  constructor(message: string, metadata: Crv3dMetadata, previewGifBase64: string | null) {
+    super(message);
+    this.name = "Crv3dNotSupportedError";
+    this.metadata = metadata;
+    this.previewGifBase64 = previewGifBase64;
+  }
 }
 
 const BASE = "/api";
@@ -126,6 +146,22 @@ export const api = {
     const res = await fetch(`${BASE}/furniture/import`, { method: "POST", body: fd });
     if (!res.ok) {
       const body = await res.text();
+      if (res.status === 422) {
+        try {
+          const parsed = JSON.parse(body) as { detail?: unknown };
+          const d = parsed.detail;
+          if (d && typeof d === "object" && (d as { code?: string }).code === "crv3d_not_supported") {
+            const det = d as {
+              message: string;
+              metadata: Crv3dMetadata;
+              preview_gif_base64: string | null;
+            };
+            throw new Crv3dNotSupportedError(det.message, det.metadata, det.preview_gif_base64);
+          }
+        } catch (e) {
+          if (e instanceof Crv3dNotSupportedError) throw e;
+        }
+      }
       throw new Error(`${res.status} ${res.statusText}: ${body}`);
     }
     return res.json() as Promise<FurnitureImportResponse>;
@@ -137,9 +173,18 @@ export const api = {
     const raw = await req<RawFurnitureDetail>(`/furniture/${id}`);
     const layers: string[] = [];
     const piece_roles: Record<string, string> = {};
+    const depthsByLayer: Record<string, number[]> = {};
     for (const p of raw.pieces) {
       if (!layers.includes(p.layer)) layers.push(p.layer);
       if (!(p.layer in piece_roles)) piece_roles[p.layer] = p.role ?? "";
+      (depthsByLayer[p.layer] ??= []).push(p.depth);
+    }
+    const layer_depths: Record<string, number> = {};
+    for (const [l, ds] of Object.entries(depthsByLayer)) {
+      const sorted = ds.slice().sort((a, b) => a - b);
+      const n = sorted.length;
+      const m = n % 2 ? sorted[(n - 1) / 2] : (sorted[n / 2 - 1] + sorted[n / 2]) / 2;
+      layer_depths[l] = Math.round(m * 100) / 100;
     }
     return {
       furniture_id: raw.furniture_id,
@@ -147,6 +192,7 @@ export const api = {
       thumbnail_url: raw.thumbnail_url,
       contours_count: raw.pieces.length,
       layers,
+      layer_depths,
       piece_roles,
       created_at: raw.created_at,
       material_thickness: raw.material_thickness,
