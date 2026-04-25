@@ -114,6 +114,34 @@ def update_piece_roles(furniture_id: str, roles: dict[str, str]) -> bool:
         session.close()
 
 
+def update_layer_depths(furniture_id: str, depths: dict[str, float]) -> bool:
+    """Persiste sobreescrituras de profundidad por layer en ImportedFurniture."""
+    session = _session()
+    try:
+        furn = session.get(ImportedFurniture, furniture_id)
+        if furn is None:
+            return False
+        furn.layer_depths_override = json.dumps(depths, ensure_ascii=False)
+        session.commit()
+        return True
+    finally:
+        session.close()
+
+
+def get_layer_depths_override(furniture_id: str) -> dict[str, float]:
+    """Devuelve el dict de overrides de profundidad, o {} si no hay."""
+    session = _session()
+    try:
+        furn = session.get(ImportedFurniture, furniture_id)
+        if furn is None or not furn.layer_depths_override:
+            return {}
+        return json.loads(furn.layer_depths_override)
+    except (TypeError, ValueError):
+        return {}
+    finally:
+        session.close()
+
+
 def delete_imported_furniture(furniture_id: str) -> bool:
     """Borra filas de imported_pieces y luego la de imported_furniture."""
     session = _session()

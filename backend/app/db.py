@@ -37,6 +37,7 @@ class ImportedFurniture(Base):
     thumbnail_path = Column(String, nullable=True)
     parsed_data = Column(Text, nullable=True)
     piece_roles = Column(Text, nullable=True)
+    layer_depths_override = Column(Text, nullable=True)
     created_at = Column(DateTime, default=datetime.datetime.utcnow)
     updated_at = Column(
         DateTime,
@@ -60,6 +61,17 @@ class ImportedPiece(Base):
 
 
 def init_db() -> None:
-    """Crea tablas si no existen. Idempotente."""
+    """Crea tablas si no existen. Idempotente. Aplica migraciones de columnas nuevas."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(engine)
+    # Migración: columnas añadidas después de la creación inicial
+    with engine.connect() as conn:
+        try:
+            conn.execute(
+                __import__("sqlalchemy").text(
+                    "ALTER TABLE imported_furniture ADD COLUMN layer_depths_override TEXT"
+                )
+            )
+            conn.commit()
+        except Exception:
+            pass  # La columna ya existe — OK
