@@ -35,6 +35,8 @@ from .schemas import (
     AIConfigUpdate,
     CostDTO,
     CostingConfig,
+    EstimateRequest,
+    EstimateResponse,
     LayoutDTO,
     OffcutDTO,
     PieceDTO,
@@ -42,6 +44,7 @@ from .schemas import (
     PipelineResponse,
     PlacedPieceDTO,
     ProjectMeta,
+    ProjectMetaPatch,
     RecomputeCostsRequest,
     SaveProjectRequest,
     SavedProject,
@@ -150,6 +153,9 @@ def recompute_costs(req: RecomputeCostsRequest) -> CostDTO:
     y quiere ver el impacto sin tener que rehacer el pipeline completo.
     """
     cfg_data = _read_costing_config()
+    if req.overrides is not None:
+        for k, v in req.overrides.model_dump(exclude_none=True).items():
+            cfg_data[k] = v
 
     pieces = [
         NestingPiece(
@@ -268,6 +274,46 @@ def save_project(req: SaveProjectRequest) -> ProjectMeta:
         saved.model_dump_json(indent=2), encoding="utf-8"
     )
     return meta
+
+
+@app.patch("/projects/{project_id}/meta", response_model=ProjectMeta)
+def patch_project_meta(project_id: str, patch: ProjectMetaPatch) -> ProjectMeta:
+    """Actualiza solo metadata (nombre/tags/favorito/notas/fotos) sin tocar spec ni result."""
+    path = PROJECTS_DIR / f"{project_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    meta = data.get("meta", {})
+    for k, v in patch.model_dump(exclude_none=True).items():
+        meta[k] = v
+    data["meta"] = meta
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    return ProjectMeta(**meta)
+
+
+@app.post("/pipeline/estimate", response_model=EstimateResponse)
+def estimate_pipeline(req: EstimateRequest) -> EstimateResponse:
+    """Estima placas y desperdicio sin correr nesting completo (solo suma áreas)."""
+    from nesting.config import STANDARD_SHEET_W, STANDARD_SHEET_H
+    try:
+        furniture = _build_furniture(req.furniture)
+        pieces = list(furniture.get_pieces())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    sheet_area = float(STANDARD_SHEET_W) * float(STANDARD_SHEET_H)
+    total_area = sum(p.width * p.height * p.qty for p in pieces)
+    pieces_count = sum(p.qty for p in pieces)
+    sheets_est = max(1, int(-(-total_area // sheet_area))) if total_area > 0 else 0
+    capacity = sheet_area * sheets_est if sheets_est > 0 else sheet_area
+    waste_pct = max(0.0, (capacity - total_area) / capacity * 100.0) if capacity > 0 else 0.0
+    return EstimateResponse(
+        pieces_count=pieces_count,
+        total_area_mm2=total_area,
+        sheet_area_mm2=sheet_area,
+        sheets_estimated=sheets_est,
+        waste_pct=round(waste_pct, 2),
+    )
 
 
 @app.get("/projects", response_model=List[ProjectMeta])

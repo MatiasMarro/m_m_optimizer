@@ -46,6 +46,6 @@ const DARK: TokenColors = {
 };
 
 export function useTokenColors(): TokenColors {
-  const { theme } = useTheme();
-  return theme === "dark" ? DARK : LIGHT;
+  const { resolved } = useTheme();
+  return resolved === "dark" ? DARK : LIGHT;
 }

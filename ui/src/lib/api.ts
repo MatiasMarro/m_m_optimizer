@@ -3,6 +3,8 @@
 import type {
   Cost,
   CostingConfig,
+  CostingOverrides,
+  EstimateResponse,
   FurnitureSpec,
   HardwareItem,
   Layout,
@@ -10,6 +12,7 @@ import type {
   PipelineRequest,
   PipelineResponse,
   ProjectMeta,
+  ProjectMetaPatch,
   SavedProject,
 } from "./types";
 
@@ -148,7 +151,11 @@ export const api = {
   recomputeCosts: (
     pieces: Piece[],
     layout: Layout,
-    opts: { horas_mo?: number | null; herrajes?: HardwareItem[] } = {},
+    opts: {
+      horas_mo?: number | null;
+      herrajes?: HardwareItem[];
+      overrides?: CostingOverrides;
+    } = {},
   ) =>
     req<Cost>("/pipeline/recompute_costs", {
       method: "POST",
@@ -157,7 +164,14 @@ export const api = {
         layout,
         horas_mo: opts.horas_mo ?? null,
         herrajes: opts.herrajes ?? [],
+        overrides: opts.overrides ?? null,
       }),
+    }),
+
+  estimatePipeline: (furniture: FurnitureSpec) =>
+    req<EstimateResponse>("/pipeline/estimate", {
+      method: "POST",
+      body: JSON.stringify({ furniture }),
     }),
 
   listOffcuts: () => req<OffcutStock[]>("/inventory/offcuts"),
@@ -180,6 +194,12 @@ export const api = {
 
   deleteProject: (id: string) =>
     req<{ ok: boolean }>(`/projects/${id}`, { method: "DELETE" }),
+
+  patchProjectMeta: (id: string, patch: ProjectMetaPatch) =>
+    req<ProjectMeta>(`/projects/${id}/meta`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
 
   getConfig: () => req<CostingConfig>("/config/costing"),
 

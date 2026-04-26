@@ -9,6 +9,7 @@ import DxfPreview from "@/components/DxfPreview";
 import StageProgress, { OPTIMIZE_STAGES } from "@/components/StageProgress";
 import { useProject } from "@/store/projectStore";
 import { api, Crv3dNotSupportedError, type Crv3dMetadata, type FurnitureItem } from "@/lib/api";
+import type { EstimateResponse } from "@/lib/types";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -55,6 +56,16 @@ function NumberField({
       </div>
       {errMsg && <span className="mt-1 block text-[11px] text-danger">{errMsg}</span>}
     </label>
+  );
+}
+
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[11px] uppercase tracking-wide text-muted">{label}</span>
+      <span className="font-mono text-base text-text">{value}</span>
+      {hint && <span className="text-[10px] text-muted">{hint}</span>}
+    </div>
   );
 }
 
@@ -252,6 +263,10 @@ export default function Designer() {
   const selectedFurniture =
     furnitureList.find((f) => f.furniture_id === selectedFurnitureId) ?? null;
 
+  // ── estimación previa (parametric)
+  const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
+  const [estimating, setEstimating] = useState(false);
+
   // ── import form
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [importName, setImportName] = useState("");
@@ -264,6 +279,30 @@ export default function Designer() {
   useEffect(() => {
     if (activeTab === "dxf") void loadFurniture();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "parametric") return;
+    const invalid =
+      spec.ancho < 50 || spec.ancho > 3000 ||
+      spec.alto < 50 || spec.alto > 3000 ||
+      spec.profundidad < 50 || spec.profundidad > 1500;
+    if (invalid) {
+      setEstimate(null);
+      return;
+    }
+    setEstimating(true);
+    const t = window.setTimeout(async () => {
+      try {
+        const r = await api.estimatePipeline(spec);
+        setEstimate(r);
+      } catch {
+        setEstimate(null);
+      } finally {
+        setEstimating(false);
+      }
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [activeTab, spec]);
 
   useEffect(() => {
     if (!selectedFurnitureId) return;
@@ -475,8 +514,41 @@ export default function Designer() {
 
           {/* Parametric tab */}
           {activeTab === "parametric" && (
-            <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
-              Preview 3D · TODO
+            <div className="flex flex-col gap-4">
+              <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
+                Preview 3D · TODO
+              </div>
+              <div className="rounded-lg border border-border bg-surface p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                    Estimación previa
+                  </span>
+                  {estimating && <span className="text-[11px] text-muted">calculando…</span>}
+                </div>
+                {estimate ? (
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    <Stat label="Piezas" value={estimate.pieces_count.toString()} />
+                    <Stat
+                      label="Área total"
+                      value={`${(estimate.total_area_mm2 / 1_000_000).toFixed(2)} m²`}
+                    />
+                    <Stat
+                      label="Placas (≈)"
+                      value={`${estimate.sheets_estimated}`}
+                      hint="estimado por área"
+                    />
+                    <Stat
+                      label="Desperdicio"
+                      value={`${estimate.waste_pct.toFixed(1)}%`}
+                      hint="placas estd. 1830×2440"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted">
+                    Ajustá las dimensiones para ver una estimación rápida (sin nesting real).
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
