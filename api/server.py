@@ -23,8 +23,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from costing import HardwareItem
+from costing.calculator import CostCalculator
 from main import run_pipeline
 from nesting import OffcutInventory
+from nesting.models import Layout, PlacedPiece, Sheet, SheetUsage
+from nesting.models import Piece as NestingPiece
 from parametric import Cabinet, ShelvingUnit
 
 from .schemas import (
@@ -32,6 +35,8 @@ from .schemas import (
     AIConfigUpdate,
     CostDTO,
     CostingConfig,
+    EstimateRequest,
+    EstimateResponse,
     LayoutDTO,
     OffcutDTO,
     PieceDTO,
@@ -39,6 +44,8 @@ from .schemas import (
     PipelineResponse,
     PlacedPieceDTO,
     ProjectMeta,
+    ProjectMetaPatch,
+    RecomputeCostsRequest,
     SaveProjectRequest,
     SavedProject,
     SheetUsageDTO,
@@ -138,6 +145,91 @@ def run(req: PipelineRequest) -> PipelineResponse:
     return _serialize(result)
 
 
+@app.post("/pipeline/recompute_costs", response_model=CostDTO)
+def recompute_costs(req: RecomputeCostsRequest) -> CostDTO:
+    """Recalcula el costo sobre un layout existente con las tarifas vigentes.
+
+    No reoptimiza nesting — útil cuando el usuario cambió tarifas en Ajustes
+    y quiere ver el impacto sin tener que rehacer el pipeline completo.
+    """
+    cfg_data = _read_costing_config()
+    if req.overrides is not None:
+        for k, v in req.overrides.model_dump(exclude_none=True).items():
+            cfg_data[k] = v
+
+    pieces = [
+        NestingPiece(
+            name=p.name,
+            width=p.width,
+            height=p.height,
+            qty=p.qty,
+            grain_locked=p.grain_locked,
+            edged=p.edged,
+        )
+        for p in req.pieces
+    ]
+
+    sheets_used: List[SheetUsage] = []
+    for s in req.layout.sheets_used:
+        sheet = Sheet(
+            id=s.sheet_id,
+            width=s.sheet_width,
+            height=s.sheet_height,
+            is_offcut=s.is_offcut,
+        )
+        placements = [
+            PlacedPiece(
+                piece_name=pp.piece_name,
+                sheet_id=s.sheet_id,
+                x=pp.x,
+                y=pp.y,
+                width=pp.width,
+                height=pp.height,
+                rotated=pp.rotated,
+            )
+            for pp in s.placed
+        ]
+        sheets_used.append(SheetUsage(sheet=sheet, placements=placements))
+
+    layout = Layout(
+        sheets_used=sheets_used,
+        unplaced=[],
+        efficiency=req.layout.efficiency,
+        new_offcuts=[],
+    )
+
+    calc = CostCalculator(
+        precio_placa=cfg_data["precio_placa_mdf18"],
+        factor_retazo=cfg_data["factor_valor_retazo"],
+        precio_tapacanto_m=cfg_data["precio_tapacanto_m"],
+        costo_hora_cnc=cfg_data["costo_hora_cnc"],
+        velocidad_corte=cfg_data["velocidad_corte_mm_min"],
+        costo_hora_mo=cfg_data["costo_hora_mo"],
+        margen=cfg_data["margen"],
+        kerf=cfg_data["kerf_mm"],
+    )
+    horas_mo = req.horas_mo if req.horas_mo is not None else cfg_data["horas_mo_default"]
+    herrajes = [HardwareItem(h.nombre, h.qty, h.precio_unit) for h in req.herrajes]
+
+    b = calc.compute(layout, pieces, horas_mo=horas_mo, herrajes=herrajes)
+    return CostDTO(
+        material_placas=b.material_placas,
+        material_retazos=b.material_retazos,
+        tapacanto=b.tapacanto,
+        tiempo_cnc=b.tiempo_cnc,
+        mano_obra=b.mano_obra,
+        herrajes=b.herrajes,
+        margen=b.margen,
+        subtotal=b.subtotal,
+        total=b.total,
+        placas_nuevas=b.placas_nuevas,
+        retazos_consumidos=b.retazos_consumidos,
+        metros_tapacanto=b.metros_tapacanto,
+        minutos_cnc=b.minutos_cnc,
+        horas_mo=b.horas_mo,
+    )
+
+
 @app.get("/inventory/offcuts")
 def list_offcuts():
     inv = OffcutInventory()
@@ -182,6 +274,46 @@ def save_project(req: SaveProjectRequest) -> ProjectMeta:
         saved.model_dump_json(indent=2), encoding="utf-8"
     )
     return meta
+
+
+@app.patch("/projects/{project_id}/meta", response_model=ProjectMeta)
+def patch_project_meta(project_id: str, patch: ProjectMetaPatch) -> ProjectMeta:
+    """Actualiza solo metadata (nombre/tags/favorito/notas/fotos) sin tocar spec ni result."""
+    path = PROJECTS_DIR / f"{project_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Project not found")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    meta = data.get("meta", {})
+    for k, v in patch.model_dump(exclude_none=True).items():
+        meta[k] = v
+    data["meta"] = meta
+    path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    return ProjectMeta(**meta)
+
+
+@app.post("/pipeline/estimate", response_model=EstimateResponse)
+def estimate_pipeline(req: EstimateRequest) -> EstimateResponse:
+    """Estima placas y desperdicio sin correr nesting completo (solo suma áreas)."""
+    from nesting.config import STANDARD_SHEET_W, STANDARD_SHEET_H
+    try:
+        furniture = _build_furniture(req.furniture)
+        pieces = list(furniture.get_pieces())
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    sheet_area = float(STANDARD_SHEET_W) * float(STANDARD_SHEET_H)
+    total_area = sum(p.width * p.height * p.qty for p in pieces)
+    pieces_count = sum(p.qty for p in pieces)
+    sheets_est = max(1, int(-(-total_area // sheet_area))) if total_area > 0 else 0
+    capacity = sheet_area * sheets_est if sheets_est > 0 else sheet_area
+    waste_pct = max(0.0, (capacity - total_area) / capacity * 100.0) if capacity > 0 else 0.0
+    return EstimateResponse(
+        pieces_count=pieces_count,
+        total_area_mm2=total_area,
+        sheet_area_mm2=sheet_area,
+        sheets_estimated=sheets_est,
+        waste_pct=round(waste_pct, 2),
+    )
 
 
 @app.get("/projects", response_model=List[ProjectMeta])

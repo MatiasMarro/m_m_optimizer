@@ -105,6 +105,19 @@ class ProjectMeta(BaseModel):
     ancho: float
     alto: float
     profundidad: float
+    tags: List[str] = Field(default_factory=list)
+    favorito: bool = False
+    notas: str = ""
+    foto_urls: List[str] = Field(default_factory=list)
+
+
+class ProjectMetaPatch(BaseModel):
+    """Body para `PATCH /projects/{id}/meta`. Todos los campos son opcionales."""
+    nombre: Optional[str] = None
+    tags: Optional[List[str]] = None
+    favorito: Optional[bool] = None
+    notas: Optional[str] = None
+    foto_urls: Optional[List[str]] = None
 
 
 class SavedProject(BaseModel):
@@ -117,6 +130,40 @@ class SaveProjectRequest(BaseModel):
     nombre: str
     spec: FurnitureSpec
     result: PipelineResponse
+
+
+class CostingOverrides(BaseModel):
+    """Overrides parciales sobre la config vigente para análisis what-if."""
+    precio_placa_mdf18: Optional[float] = None
+    factor_valor_retazo: Optional[float] = None
+    precio_tapacanto_m: Optional[float] = None
+    costo_hora_cnc: Optional[float] = None
+    velocidad_corte_mm_min: Optional[float] = None
+    costo_hora_mo: Optional[float] = None
+    margen: Optional[float] = None
+    kerf_mm: Optional[float] = None
+
+
+class RecomputeCostsRequest(BaseModel):
+    """Recalcula solo costos con las tarifas vigentes, sin reoptimizar nesting."""
+    pieces: List[PieceDTO]
+    layout: LayoutDTO
+    horas_mo: Optional[float] = None
+    herrajes: List[HardwareItemDTO] = Field(default_factory=list)
+    overrides: Optional[CostingOverrides] = None
+
+
+class EstimateRequest(BaseModel):
+    """Estima placas y desperdicio sin correr el optimizador completo."""
+    furniture: FurnitureSpec
+
+
+class EstimateResponse(BaseModel):
+    pieces_count: int
+    total_area_mm2: float
+    sheet_area_mm2: float
+    sheets_estimated: int
+    waste_pct: float
 
 
 class CostingConfig(BaseModel):

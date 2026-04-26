@@ -1,11 +1,18 @@
 // Copyright (c) 2024-2026 Matías Marro. All rights reserved.
 // m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 import type {
+  Cost,
   CostingConfig,
+  CostingOverrides,
+  EstimateResponse,
   FurnitureSpec,
+  HardwareItem,
+  Layout,
+  Piece,
   PipelineRequest,
   PipelineResponse,
   ProjectMeta,
+  ProjectMetaPatch,
   SavedProject,
 } from "./types";
 
@@ -141,6 +148,32 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
+  recomputeCosts: (
+    pieces: Piece[],
+    layout: Layout,
+    opts: {
+      horas_mo?: number | null;
+      herrajes?: HardwareItem[];
+      overrides?: CostingOverrides;
+    } = {},
+  ) =>
+    req<Cost>("/pipeline/recompute_costs", {
+      method: "POST",
+      body: JSON.stringify({
+        pieces,
+        layout,
+        horas_mo: opts.horas_mo ?? null,
+        herrajes: opts.herrajes ?? [],
+        overrides: opts.overrides ?? null,
+      }),
+    }),
+
+  estimatePipeline: (furniture: FurnitureSpec) =>
+    req<EstimateResponse>("/pipeline/estimate", {
+      method: "POST",
+      body: JSON.stringify({ furniture }),
+    }),
+
   listOffcuts: () => req<OffcutStock[]>("/inventory/offcuts"),
 
   addOffcut: (ancho: number, alto: number) =>
@@ -161,6 +194,12 @@ export const api = {
 
   deleteProject: (id: string) =>
     req<{ ok: boolean }>(`/projects/${id}`, { method: "DELETE" }),
+
+  patchProjectMeta: (id: string, patch: ProjectMetaPatch) =>
+    req<ProjectMeta>(`/projects/${id}/meta`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
 
   getConfig: () => req<CostingConfig>("/config/costing"),
 

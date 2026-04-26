@@ -1,21 +1,39 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2, FileBox, Play, Trash2, Upload, Wand2, X } from "lucide-react";
+import { CheckCircle2, FileBox, Play, Search, Trash2, Upload, Wand2, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import InspectorPanel from "@/components/layout/InspectorPanel";
 import RoleWizardModal from "@/components/RoleWizardModal";
 import DxfPreview from "@/components/DxfPreview";
+import StageProgress, { OPTIMIZE_STAGES } from "@/components/StageProgress";
 import { useProject } from "@/store/projectStore";
 import { api, Crv3dNotSupportedError, type Crv3dMetadata, type FurnitureItem } from "@/lib/api";
+import type { EstimateResponse } from "@/lib/types";
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 function NumberField({
-  label, value, onChange, step = 10, suffix = "mm",
+  label, value, onChange, step = 10, suffix = "mm", min, max,
 }: {
-  label: string; value: number; onChange: (n: number) => void; step?: number; suffix?: string;
+  label: string;
+  value: number;
+  onChange: (n: number) => void;
+  step?: number;
+  suffix?: string;
+  min?: number;
+  max?: number;
 }) {
+  const outOfRange =
+    (min !== undefined && value < min) || (max !== undefined && value > max);
+  const errMsg = outOfRange
+    ? min !== undefined && max !== undefined
+      ? `Debe estar entre ${min} y ${max} ${suffix}`
+      : min !== undefined
+      ? `Mínimo ${min} ${suffix}`
+      : `Máximo ${max} ${suffix}`
+    : null;
+
   return (
     <label className="block">
       <span className="mb-1 block text-xs text-muted">{label}</span>
@@ -23,13 +41,31 @@ function NumberField({
         <input
           type="number"
           step={step}
+          min={min}
+          max={max}
           value={value}
           onChange={(e) => onChange(Number(e.target.value))}
-          className="w-full rounded border border-border bg-surface px-2 py-1 font-mono text-sm"
+          className={`w-full rounded border bg-surface px-2 py-1 font-mono text-sm focus:outline-none focus:ring-2 ${
+            outOfRange
+              ? "border-danger focus:ring-danger/40"
+              : "border-border focus:ring-primary/40"
+          }`}
+          aria-invalid={outOfRange}
         />
         <span className="text-xs text-muted">{suffix}</span>
       </div>
+      {errMsg && <span className="mt-1 block text-[11px] text-danger">{errMsg}</span>}
     </label>
+  );
+}
+
+function Stat({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="flex flex-col">
+      <span className="text-[11px] uppercase tracking-wide text-muted">{label}</span>
+      <span className="font-mono text-base text-text">{value}</span>
+      {hint && <span className="text-[10px] text-muted">{hint}</span>}
+    </div>
   );
 }
 
@@ -140,10 +176,7 @@ function FurnitureCard({
           title="Convierte los contornos PROFILE a piezas y corre el nesting"
         >
           {optimizing ? (
-            <span className="inline-flex items-center gap-1.5">
-              <span className="h-2 w-2 animate-pulse rounded-full bg-white" />
-              Optimizando…
-            </span>
+            <StageProgress active stages={OPTIMIZE_STAGES} className="text-white" />
           ) : (
             <span className="inline-flex items-center gap-1.5">
               <Wand2 size={12} /> Optimizar mueble
@@ -208,6 +241,8 @@ export default function Designer() {
   // ── dxf list
   const [furnitureList, setFurnitureList] = useState<FurnitureItem[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [furnitureQuery, setFurnitureQuery] = useState("");
+  const [furnitureFilter, setFurnitureFilter] = useState<"all" | "ready" | "pending">("all");
 
   // ── role wizard modal
   const [wizardItem, setWizardItem] = useState<FurnitureItem | null>(null);
@@ -228,6 +263,10 @@ export default function Designer() {
   const selectedFurniture =
     furnitureList.find((f) => f.furniture_id === selectedFurnitureId) ?? null;
 
+  // ── estimación previa (parametric)
+  const [estimate, setEstimate] = useState<EstimateResponse | null>(null);
+  const [estimating, setEstimating] = useState(false);
+
   // ── import form
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [importName, setImportName] = useState("");
@@ -240,6 +279,30 @@ export default function Designer() {
   useEffect(() => {
     if (activeTab === "dxf") void loadFurniture();
   }, [activeTab]);
+
+  useEffect(() => {
+    if (activeTab !== "parametric") return;
+    const invalid =
+      spec.ancho < 50 || spec.ancho > 3000 ||
+      spec.alto < 50 || spec.alto > 3000 ||
+      spec.profundidad < 50 || spec.profundidad > 1500;
+    if (invalid) {
+      setEstimate(null);
+      return;
+    }
+    setEstimating(true);
+    const t = window.setTimeout(async () => {
+      try {
+        const r = await api.estimatePipeline(spec);
+        setEstimate(r);
+      } catch {
+        setEstimate(null);
+      } finally {
+        setEstimating(false);
+      }
+    }, 350);
+    return () => window.clearTimeout(t);
+  }, [activeTab, spec]);
 
   useEffect(() => {
     if (!selectedFurnitureId) return;
@@ -272,12 +335,54 @@ export default function Designer() {
     if (!importName) setImportName(file.name.replace(/\.(dxf|crv3d)$/i, ""));
   }
 
+  function isNetworkError(e: unknown): boolean {
+    if (!(e instanceof Error)) return false;
+    const m = e.message.toLowerCase();
+    return (
+      m.includes("failed to fetch") ||
+      m.includes("network") ||
+      m.includes("load failed") ||
+      m.includes("connection")
+    );
+  }
+
+  function friendlyImportError(e: unknown): string {
+    if (!(e instanceof Error)) return String(e);
+    const m = e.message;
+    if (isNetworkError(e)) {
+      return "No se pudo conectar con el servidor. Verificá que esté corriendo.";
+    }
+    if (m.includes("400")) {
+      return "El archivo parece inválido o está corrupto. Probá exportarlo de nuevo.";
+    }
+    if (m.includes("422")) {
+      return "El formato del archivo no es soportado.";
+    }
+    if (m.includes("500")) {
+      return "Error interno del servidor al procesar el archivo. Intentá de nuevo.";
+    }
+    return m;
+  }
+
+  async function tryImport(file: File, name: string, thickness: number, attempt = 0): Promise<void> {
+    try {
+      await api.importFurniture(name, thickness, file);
+    } catch (e) {
+      if (e instanceof Crv3dNotSupportedError) throw e;
+      if (attempt < 1 && isNetworkError(e)) {
+        await new Promise((r) => setTimeout(r, 1500));
+        return tryImport(file, name, thickness, attempt + 1);
+      }
+      throw e;
+    }
+  }
+
   async function handleImport() {
     if (!pendingFile || !importName.trim()) return;
     setUploading(true);
     setUploadError(null);
     try {
-      await api.importFurniture(importName.trim(), importThickness, pendingFile);
+      await tryImport(pendingFile, importName.trim(), importThickness);
       setPendingFile(null);
       setImportName("");
       await loadFurniture();
@@ -291,7 +396,7 @@ export default function Designer() {
         setPendingFile(null);
         setImportName("");
       } else {
-        setUploadError(String(e));
+        setUploadError(friendlyImportError(e));
       }
     } finally {
       setUploading(false);
@@ -327,6 +432,8 @@ export default function Designer() {
           offcutsUsed: res.summary.offcuts_used ?? 0,
           savingsArs: res.summary.savings_ars ?? 0,
           savingsPct: res.summary.savings_pct ?? 0,
+          layoutWithout: res.without_inventory?.layout.sheets_used ?? null,
+          layoutWith: res.with_inventory?.layout.sheets_used ?? null,
         });
       }
       setActiveProjectName(item.name);
@@ -374,6 +481,21 @@ export default function Designer() {
 
   const hasItems = furnitureList.length > 0;
 
+  const filteredFurniture = useMemo(() => {
+    const q = furnitureQuery.trim().toLowerCase();
+    return furnitureList.filter((f) => {
+      if (q && !f.name.toLowerCase().includes(q)) return false;
+      if (furnitureFilter !== "all") {
+        const layers = f.layers ?? [];
+        const assigned = layers.filter((l) => f.piece_roles?.[l]).length;
+        const ready = layers.length > 0 && assigned === layers.length;
+        if (furnitureFilter === "ready" && !ready) return false;
+        if (furnitureFilter === "pending" && ready) return false;
+      }
+      return true;
+    });
+  }, [furnitureList, furnitureQuery, furnitureFilter]);
+
   return (
     <div className="flex h-full flex-col">
       {/* Tab bar */}
@@ -392,8 +514,41 @@ export default function Designer() {
 
           {/* Parametric tab */}
           {activeTab === "parametric" && (
-            <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
-              Preview 3D · TODO
+            <div className="flex flex-col gap-4">
+              <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
+                Preview 3D · TODO
+              </div>
+              <div className="rounded-lg border border-border bg-surface p-4">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                    Estimación previa
+                  </span>
+                  {estimating && <span className="text-[11px] text-muted">calculando…</span>}
+                </div>
+                {estimate ? (
+                  <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                    <Stat label="Piezas" value={estimate.pieces_count.toString()} />
+                    <Stat
+                      label="Área total"
+                      value={`${(estimate.total_area_mm2 / 1_000_000).toFixed(2)} m²`}
+                    />
+                    <Stat
+                      label="Placas (≈)"
+                      value={`${estimate.sheets_estimated}`}
+                      hint="estimado por área"
+                    />
+                    <Stat
+                      label="Desperdicio"
+                      value={`${estimate.waste_pct.toFixed(1)}%`}
+                      hint="placas estd. 1830×2440"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted">
+                    Ajustá las dimensiones para ver una estimación rápida (sin nesting real).
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -455,26 +610,61 @@ export default function Designer() {
                 }}
               />
 
-              {/* Furniture grid */}
+              {/* Filtros + grid */}
               {listLoading ? (
                 <p className="py-10 text-center text-sm text-muted">Cargando…</p>
               ) : hasItems ? (
-                <div className="grid grid-cols-2 gap-4 xl:grid-cols-3 2xl:grid-cols-4">
-                  {furnitureList.map((item) => (
-                    <FurnitureCard
-                      key={item.furniture_id}
-                      item={item}
-                      onDelete={() => void handleDelete(item.furniture_id)}
-                      onOpenRoles={() => setWizardItem(item)}
-                      onOpenPreview={() => setSelectedFurnitureId(item.furniture_id)}
-                      onOptimize={() => void handleOptimizeImported(item)}
-                      optimizing={optimizingId === item.furniture_id}
-                    />
-                  ))}
-                </div>
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="relative">
+                      <Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+                      <input
+                        type="text"
+                        value={furnitureQuery}
+                        onChange={(e) => setFurnitureQuery(e.target.value)}
+                        placeholder="Buscar mueble por nombre…"
+                        className="h-9 w-64 rounded border border-border bg-surface pl-7 pr-2 text-sm placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
+                    </div>
+                    <div className="inline-flex overflow-hidden rounded border border-border text-xs">
+                      {(["all", "ready", "pending"] as const).map((f) => (
+                        <button
+                          key={f}
+                          onClick={() => setFurnitureFilter(f)}
+                          className={`px-3 py-1.5 transition-colors ${
+                            furnitureFilter === f
+                              ? "bg-primary text-white"
+                              : "bg-surface text-muted hover:bg-surface-2 hover:text-text"
+                          }`}
+                        >
+                          {f === "all" ? "Todos" : f === "ready" ? "Roles listos" : "Sin asignar"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  {filteredFurniture.length === 0 ? (
+                    <p className="py-10 text-center text-sm text-muted">
+                      Sin coincidencias con los filtros aplicados.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-4 xl:grid-cols-3 2xl:grid-cols-4">
+                      {filteredFurniture.map((item) => (
+                        <FurnitureCard
+                          key={item.furniture_id}
+                          item={item}
+                          onDelete={() => void handleDelete(item.furniture_id)}
+                          onOpenRoles={() => setWizardItem(item)}
+                          onOpenPreview={() => setSelectedFurnitureId(item.furniture_id)}
+                          onOptimize={() => void handleOptimizeImported(item)}
+                          optimizing={optimizingId === item.furniture_id}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </>
               ) : (
                 <p className="py-4 text-center text-sm text-muted">
-                  No hay muebles importados todavía.
+                  No hay muebles importados todavía. Arrastrá un archivo arriba para empezar.
                 </p>
               )}
             </div>
@@ -496,12 +686,26 @@ export default function Designer() {
                   <option value="shelving">Estantería</option>
                 </select>
               </div>
-              <NumberField label="Ancho" value={spec.ancho} onChange={(ancho) => setSpec({ ancho })} />
-              <NumberField label="Alto" value={spec.alto} onChange={(alto) => setSpec({ alto })} />
+              <NumberField
+                label="Ancho"
+                value={spec.ancho}
+                onChange={(ancho) => setSpec({ ancho })}
+                min={50}
+                max={3000}
+              />
+              <NumberField
+                label="Alto"
+                value={spec.alto}
+                onChange={(alto) => setSpec({ alto })}
+                min={50}
+                max={3000}
+              />
               <NumberField
                 label="Profundidad"
                 value={spec.profundidad}
                 onChange={(profundidad) => setSpec({ profundidad })}
+                min={50}
+                max={1500}
               />
               <NumberField
                 label="Estantes"
@@ -509,10 +713,32 @@ export default function Designer() {
                 onChange={(num_estantes) => setSpec({ num_estantes })}
                 step={1}
                 suffix=""
+                min={0}
+                max={20}
               />
-              <Button onClick={onOptimize} disabled={loading} className="w-full justify-center">
-                <Play size={16} /> {loading ? "Optimizando…" : "Optimizar"}
-              </Button>
+              {(() => {
+                const invalid =
+                  spec.ancho < 50 || spec.ancho > 3000 ||
+                  spec.alto < 50 || spec.alto > 3000 ||
+                  spec.profundidad < 50 || spec.profundidad > 1500 ||
+                  (spec.num_estantes ?? 0) < 0 || (spec.num_estantes ?? 0) > 20;
+                return (
+                  <Button
+                    onClick={onOptimize}
+                    disabled={loading || invalid}
+                    className="w-full justify-center"
+                    title={invalid ? "Corregí las dimensiones fuera de rango" : undefined}
+                  >
+                    {loading ? (
+                      <StageProgress active stages={OPTIMIZE_STAGES} className="text-white" />
+                    ) : (
+                      <>
+                        <Play size={16} /> Optimizar
+                      </>
+                    )}
+                  </Button>
+                );
+              })()}
             </>
           ) : (
             <div className="flex flex-col gap-4">
@@ -533,9 +759,18 @@ export default function Designer() {
                 step={1}
               />
               {uploadError && (
-                <p className="rounded bg-danger/10 px-3 py-2 text-xs text-danger">
-                  {uploadError}
-                </p>
+                <div className="flex flex-col gap-2 rounded border border-danger/40 bg-danger/10 px-3 py-2 text-xs text-danger">
+                  <p>{uploadError}</p>
+                  {pendingFile && (
+                    <button
+                      type="button"
+                      onClick={() => void handleImport()}
+                      className="self-start rounded border border-danger/40 px-2 py-0.5 text-[11px] font-medium hover:bg-danger/20"
+                    >
+                      Reintentar
+                    </button>
+                  )}
+                </div>
               )}
               <Button
                 onClick={() => void handleImport()}

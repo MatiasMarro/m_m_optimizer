@@ -1,23 +1,42 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Download, Save, X } from "lucide-react";
+import { ArrowRight, Download, FileSpreadsheet, Save, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { api } from "@/lib/api";
 import { useProject } from "@/store/projectStore";
 
+function fmtNum(n: number): string {
+  // CSV con coma decimal (Excel es-AR)
+  return Number(n).toFixed(2).replace(".", ",");
+}
+
+function csvEscape(v: string): string {
+  if (/[";\r\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
+  return v;
+}
+
 export default function Export() {
   const nav = useNavigate();
-  const { spec, result } = useProject();
+  const { spec, result, activeProjectName, setActiveProjectName } = useProject();
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
 
+  const suggestedName = (): string => {
+    if (activeProjectName) return activeProjectName;
+    const prefix = spec.tipo === "shelving" ? "Estantería" : "Mueble";
+    return `${prefix} ${spec.ancho}×${spec.alto}`;
+  };
+
   useEffect(() => {
     if (saveModalOpen) {
-      setTimeout(() => nameInputRef.current?.focus(), 50);
+      setTimeout(() => {
+        nameInputRef.current?.focus();
+        nameInputRef.current?.select();
+      }, 50);
     }
   }, [saveModalOpen]);
 
@@ -30,6 +49,20 @@ export default function Export() {
     return () => document.removeEventListener("keydown", onKey);
   }, [saveModalOpen]);
 
+  // Ctrl+S abre modal guardar (sólo cuando hay resultado)
+  useEffect(() => {
+    if (!result) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (!saveModalOpen) openSaveModal();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, saveModalOpen, activeProjectName, spec]);
+
   const onExport = () => {
     const a = document.createElement("a");
     a.href = "/api/output/nesting.dxf";
@@ -39,9 +72,68 @@ export default function Export() {
     document.body.removeChild(a);
   };
 
+  const onExportCutlist = () => {
+    if (!result) return;
+    const slug = (activeProjectName ?? suggestedName())
+      .replace(/[^a-z0-9-_]+/gi, "_")
+      .toLowerCase();
+    // Lista por placa con cada pieza colocada
+    const header = [
+      "placa",
+      "tipo_placa",
+      "ancho_placa_mm",
+      "alto_placa_mm",
+      "pieza",
+      "x_mm",
+      "y_mm",
+      "ancho_mm",
+      "alto_mm",
+      "rotada",
+    ];
+    const rows: string[][] = [];
+    result.layout.sheets_used.forEach((s, i) => {
+      const tipo = s.is_offcut ? "retazo" : "placa";
+      s.placed.forEach((p) => {
+        rows.push([
+          `${i + 1}`,
+          tipo,
+          fmtNum(s.sheet_width),
+          fmtNum(s.sheet_height),
+          p.piece_name,
+          fmtNum(p.x),
+          fmtNum(p.y),
+          fmtNum(p.width),
+          fmtNum(p.height),
+          p.rotated ? "sí" : "no",
+        ]);
+      });
+    });
+    // Resumen agregado por pieza
+    rows.push([]);
+    rows.push(["RESUMEN"]);
+    rows.push(["pieza", "cantidad", "ancho_mm", "alto_mm", "grain_locked"]);
+    result.pieces.forEach((p) => {
+      rows.push([p.name, `${p.qty}`, fmtNum(p.width), fmtNum(p.height), p.grain_locked ? "sí" : "no"]);
+    });
+    // ";" como separador (Excel es-AR lo abre directo)
+    const csv =
+      "﻿" +
+      [header, ...rows]
+        .map((r) => r.map(csvEscape).join(";"))
+        .join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `${slug}_lista_corte.csv`;
+    document.body.appendChild(a);
+    a.click();
+    URL.revokeObjectURL(a.href);
+    document.body.removeChild(a);
+  };
+
   const openSaveModal = () => {
     if (!result) return;
-    setProjectName("");
+    setProjectName(suggestedName());
     setSaveMsg(null);
     setSaveModalOpen(true);
   };
@@ -52,10 +144,11 @@ export default function Export() {
     setSaveMsg(null);
     try {
       const meta = await api.saveProject(projectName.trim(), spec, result);
-      setSaveMsg(`Guardado como "${meta.nombre}" (${meta.id})`);
+      setSaveMsg(`Guardado como "${meta.nombre}"`);
+      setActiveProjectName(meta.nombre);
       setSaveModalOpen(false);
     } catch (e) {
-      setSaveMsg(`Error: ${String(e)}`);
+      setSaveMsg(`No se pudo guardar el proyecto. Probá de nuevo.`);
     } finally {
       setSaving(false);
     }
@@ -90,8 +183,11 @@ export default function Export() {
         <p className="text-sm text-muted">
           Genera un DXF compatible con Vectric Aspire. Capas: CONTORNO_PLACA, PIEZAS, ETIQUETAS, RETAZOS.
         </p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Button onClick={onExport}><Download size={16} /> Exportar DXF</Button>
+          <Button variant="secondary" onClick={onExportCutlist} disabled={!result}>
+            <FileSpreadsheet size={16} /> Lista de corte (CSV)
+          </Button>
           <Button variant="secondary" onClick={openSaveModal} disabled={!result || saving}>
             <Save size={16} /> {saving ? "Guardando…" : "Guardar proyecto"}
           </Button>

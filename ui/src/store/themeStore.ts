@@ -1,33 +1,67 @@
 import { create } from "zustand";
 
-type Theme = "light" | "dark";
+export type ThemeMode = "light" | "dark" | "auto";
+type ResolvedTheme = "light" | "dark";
 
 interface ThemeState {
-  theme: Theme;
+  mode: ThemeMode;
+  resolved: ResolvedTheme;
   toggle: () => void;
-  set: (t: Theme) => void;
+  setMode: (m: ThemeMode) => void;
 }
 
 const KEY = "mm:theme";
-const initial: Theme =
-  (typeof localStorage !== "undefined" && (localStorage.getItem(KEY) as Theme)) || "light";
 
-function apply(t: Theme) {
-  document.documentElement.classList.toggle("dark", t === "dark");
-  localStorage.setItem(KEY, t);
+function readMode(): ThemeMode {
+  if (typeof localStorage === "undefined") return "auto";
+  const v = localStorage.getItem(KEY);
+  return v === "light" || v === "dark" || v === "auto" ? v : "light";
 }
 
-if (typeof document !== "undefined") apply(initial);
+function systemPrefersDark(): boolean {
+  return typeof window !== "undefined" && window.matchMedia
+    ? window.matchMedia("(prefers-color-scheme: dark)").matches
+    : false;
+}
+
+function resolve(m: ThemeMode): ResolvedTheme {
+  if (m === "auto") return systemPrefersDark() ? "dark" : "light";
+  return m;
+}
+
+function apply(mode: ThemeMode): ResolvedTheme {
+  const r = resolve(mode);
+  document.documentElement.classList.toggle("dark", r === "dark");
+  localStorage.setItem(KEY, mode);
+  return r;
+}
+
+const initialMode: ThemeMode = readMode();
+if (typeof document !== "undefined") apply(initialMode);
 
 export const useTheme = create<ThemeState>((set, get) => ({
-  theme: initial,
+  mode: initialMode,
+  resolved: resolve(initialMode),
   toggle: () => {
-    const next = get().theme === "light" ? "dark" : "light";
-    apply(next);
-    set({ theme: next });
+    const next: ThemeMode = get().resolved === "light" ? "dark" : "light";
+    const r = apply(next);
+    set({ mode: next, resolved: r });
   },
-  set: (t) => {
-    apply(t);
-    set({ theme: t });
+  setMode: (m) => {
+    const r = apply(m);
+    set({ mode: m, resolved: r });
   },
 }));
+
+if (typeof window !== "undefined" && window.matchMedia) {
+  const mql = window.matchMedia("(prefers-color-scheme: dark)");
+  const onChange = () => {
+    const s = useTheme.getState();
+    if (s.mode !== "auto") return;
+    const r: ResolvedTheme = mql.matches ? "dark" : "light";
+    document.documentElement.classList.toggle("dark", r === "dark");
+    useTheme.setState({ resolved: r });
+  };
+  if (mql.addEventListener) mql.addEventListener("change", onChange);
+  else mql.addListener(onChange);
+}

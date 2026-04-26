@@ -19,7 +19,39 @@ export type Offcut            = S["OffcutDTO"];
 export type Layout            = S["LayoutDTO"];
 export type Cost              = S["CostDTO"];
 export type PipelineResponse  = S["PipelineResponse"];
-export type ProjectMeta       = S["ProjectMeta"];
-export type SavedProject      = S["SavedProject"];
+export type ProjectMeta       = S["ProjectMeta"] & {
+  tags?: string[];
+  favorito?: boolean;
+  notas?: string;
+  foto_urls?: string[];
+};
+export type SavedProject      = Omit<S["SavedProject"], "meta"> & { meta: ProjectMeta };
 export type CostingConfig     = S["CostingConfig"];
+
+export interface CostingOverrides {
+  precio_placa_mdf18?: number;
+  factor_valor_retazo?: number;
+  precio_tapacanto_m?: number;
+  costo_hora_cnc?: number;
+  velocidad_corte_mm_min?: number;
+  costo_hora_mo?: number;
+  margen?: number;
+  kerf_mm?: number;
+}
+
+export interface EstimateResponse {
+  pieces_count: number;
+  total_area_mm2: number;
+  sheet_area_mm2: number;
+  sheets_estimated: number;
+  waste_pct: number;
+}
+
+export interface ProjectMetaPatch {
+  nombre?: string;
+  tags?: string[];
+  favorito?: boolean;
+  notas?: string;
+  foto_urls?: string[];
+}
 

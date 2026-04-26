@@ -120,12 +120,17 @@ export default function RoleWizardModal({
       });
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
+      const lower = msg.toLowerCase();
       // El backend devuelve 422 si no hay API key
-      setError(
-        msg.includes("ANTHROPIC_API_KEY")
-          ? "Configurá ANTHROPIC_API_KEY (variable de entorno o data/config.json)."
-          : `Error de IA: ${msg}`,
-      );
+      let friendly: string;
+      if (lower.includes("anthropic_api_key") || lower.includes("api key") || lower.includes("422")) {
+        friendly = "Falta configurar la API key de IA. Andá a Ajustes → Inteligencia Artificial.";
+      } else if (lower.includes("network") || lower.includes("failed to fetch")) {
+        friendly = "No pudimos conectar con el servicio de IA. Probá de nuevo en unos segundos.";
+      } else {
+        friendly = "La sugerencia de IA falló. Asigná los roles manualmente o reintentá.";
+      }
+      setError(friendly);
     } finally {
       setSuggesting(false);
     }
@@ -147,7 +152,7 @@ export default function RoleWizardModal({
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <div>
+          <div className="min-w-0">
             <h2
               id="role-wizard-title"
               className="text-sm font-semibold text-text"
@@ -156,6 +161,17 @@ export default function RoleWizardModal({
             </h2>
             <p className="mt-0.5 truncate text-xs text-muted" title={furnitureName}>
               {furnitureName}
+              {layers.length > 0 && (() => {
+                const assigned = layers.filter((l) => roles[l]).length;
+                const pct = layers.length > 0 ? assigned / layers.length : 0;
+                const tone =
+                  pct === 1 ? "text-success" : pct > 0 ? "text-warning" : "text-muted";
+                return (
+                  <span className={`ml-2 font-medium ${tone}`}>
+                    · {assigned}/{layers.length} asignados
+                  </span>
+                );
+              })()}
             </p>
           </div>
           <button
@@ -195,10 +211,15 @@ export default function RoleWizardModal({
           ) : (
             <div className="flex flex-col gap-2">
               {layers.map((layer, i) => {
+                const isUnassigned = !roles[layer];
                 return (
                 <div
                   key={layer}
-                  className="flex items-center gap-3 rounded border border-border bg-surface-2 px-3 py-2"
+                  className={`flex items-center gap-3 rounded border px-3 py-2 ${
+                    isUnassigned
+                      ? "border-warning/40 bg-warning/5"
+                      : "border-border bg-surface-2"
+                  }`}
                 >
                   <div className="min-w-0 flex-1">
                     <div

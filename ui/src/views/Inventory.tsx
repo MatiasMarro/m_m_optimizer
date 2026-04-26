@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Plus, RefreshCw, X, Check } from "lucide-react";
+import { Plus, RefreshCw, X, Check, Search, Package } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { api, type OffcutStock } from "@/lib/api";
 
@@ -44,6 +44,7 @@ export default function Inventory() {
   const [newAlto, setNewAlto] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [addLoading, setAddLoading] = useState(false);
+  const [query, setQuery] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -59,10 +60,26 @@ export default function Inventory() {
 
   useEffect(() => { load(); }, []);
 
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return items;
+    return items.filter((o) => {
+      const dim = `${o.width}x${o.height}`.toLowerCase();
+      const dimAlt = `${o.width} ${o.height}`.toLowerCase();
+      return (
+        o.id.toLowerCase().includes(q) ||
+        dim.includes(q) ||
+        dimAlt.includes(q) ||
+        String(o.width).includes(q) ||
+        String(o.height).includes(q)
+      );
+    });
+  }, [items, query]);
+
   const totals = useMemo(() => {
-    const areaMm2 = items.reduce((acc, o) => acc + o.width * o.height, 0);
-    return { count: items.length, areaM2: areaMm2 / 1_000_000 };
-  }, [items]);
+    const areaMm2 = filtered.reduce((acc, o) => acc + o.width * o.height, 0);
+    return { count: filtered.length, areaM2: areaMm2 / 1_000_000 };
+  }, [filtered]);
 
   const onAddSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,6 +87,10 @@ export default function Inventory() {
     const alto = parseFloat(newAlto);
     if (!ancho || !alto || ancho < 1 || alto < 1) {
       setAddError("Ingresá dimensiones válidas (mm)");
+      return;
+    }
+    if (ancho < 200 || alto < 200) {
+      setAddError("Lado mínimo: 200 mm (los retazos chicos no se persisten)");
       return;
     }
     setAddLoading(true);
@@ -89,14 +110,27 @@ export default function Inventory() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="mb-4 flex items-center justify-between">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Inventario de retazos</h1>
           <div className="mt-1 text-sm text-muted">
-            {totals.count} piezas · {totals.areaM2.toFixed(2)} m² disponibles
+            {totals.count} pieza{totals.count !== 1 ? "s" : ""} · {totals.areaM2.toFixed(2)} m² disponibles
+            {query && items.length !== totals.count && (
+              <span> · filtrando de {items.length}</span>
+            )}
           </div>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar por id o dimensiones…"
+              className="h-9 w-56 rounded border border-border bg-surface pl-7 pr-2 text-sm placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
           <Button variant="ghost" onClick={load} disabled={loading}>
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
             Recargar
@@ -144,6 +178,9 @@ export default function Inventory() {
             </Button>
             {addError && <span className="text-xs text-danger">{addError}</span>}
           </div>
+          <p className="basis-full text-[11px] text-muted">
+            Mínimo 200 × 200 mm. Retazos más chicos no se persisten.
+          </p>
         </form>
       )}
 
@@ -154,12 +191,27 @@ export default function Inventory() {
       )}
 
       {items.length === 0 && !loading ? (
+        <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-lg border border-border bg-surface p-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-muted">
+            <Package size={22} />
+          </div>
+          <div>
+            <p className="text-base font-medium text-text">Sin retazos en stock</p>
+            <p className="mt-1 text-sm text-muted">
+              Agregá retazos manualmente o se guardarán automáticamente al optimizar.
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => { setAddOpen(true); setAddError(null); }}>
+            <Plus size={16} /> Agregar el primero
+          </Button>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
-          Sin retazos en stock.
+          Sin coincidencias para "{query}".
         </div>
       ) : (
         <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
-          {items.map((o) => <OffcutThumb key={o.id} o={o} />)}
+          {filtered.map((o) => <OffcutThumb key={o.id} o={o} />)}
         </div>
       )}
     </div>
