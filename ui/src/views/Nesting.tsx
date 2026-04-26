@@ -1,10 +1,12 @@
 // Copyright (c) 2024-2026 Matías Marro. All rights reserved.
 // m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { AlertTriangle, ArrowRight, FolderKanban, LayoutGrid, Recycle, Ruler, X } from "lucide-react";
+import { AlertTriangle, ArrowRight, FolderKanban, GitCompareArrows, LayoutGrid, Recycle, Ruler, X } from "lucide-react";
 import Button from "@/components/ui/Button";
 import CanvasToolbar from "@/components/canvas/CanvasToolbar";
+import LayoutMiniPreview from "@/components/LayoutMiniPreview";
 import NestingCanvas, { type NestingCanvasHandle } from "@/components/canvas/NestingCanvas";
 import InspectorPanel from "@/components/layout/InspectorPanel";
 import { api } from "@/lib/api";
@@ -21,6 +23,10 @@ export default function Nesting() {
   const warnings = result?.warnings ?? [];
   const canvasRef = useRef<NestingCanvasHandle>(null);
   const [kerfMm, setKerfMm] = useState<number>(3);
+  const [compareOpen, setCompareOpen] = useState(false);
+
+  const canCompare =
+    !!inventoryComparison?.layoutWithout && !!inventoryComparison?.layoutWith;
 
   useEffect(() => {
     let cancelled = false;
@@ -33,6 +39,31 @@ export default function Nesting() {
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  // Atajos locales de canvas: + - F
+  useEffect(() => {
+    const isTyping = (el: EventTarget | null) => {
+      if (!(el instanceof HTMLElement)) return false;
+      const tag = el.tagName.toLowerCase();
+      return tag === "input" || tag === "textarea" || tag === "select" || el.isContentEditable;
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (isTyping(e.target)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === "+" || e.key === "=") {
+        e.preventDefault();
+        canvasRef.current?.zoomIn();
+      } else if (e.key === "-" || e.key === "_") {
+        e.preventDefault();
+        canvasRef.current?.zoomOut();
+      } else if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        canvasRef.current?.fit();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
   }, []);
 
   if (!result) {
@@ -101,13 +132,24 @@ export default function Nesting() {
                 {inventoryComparison.offcutsUsed !== 1 ? "s" : ""}
               </p>
             </div>
-            <button
-              onClick={() => setInventoryComparison(null)}
-              className="rounded p-1 text-muted hover:bg-success/20 hover:text-text"
-              aria-label="Cerrar"
-            >
-              <X size={14} />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              {canCompare && (
+                <button
+                  onClick={() => setCompareOpen(true)}
+                  className="inline-flex items-center gap-1 rounded border border-success/40 bg-success/15 px-2 py-1 text-xs font-medium text-success hover:bg-success/25"
+                  title="Ver layouts lado a lado"
+                >
+                  <GitCompareArrows size={13} /> Ver comparación
+                </button>
+              )}
+              <button
+                onClick={() => setInventoryComparison(null)}
+                className="rounded p-1 text-muted hover:bg-success/20 hover:text-text"
+                aria-label="Cerrar"
+              >
+                <X size={14} />
+              </button>
+            </div>
           </div>
         )}
         <div className="min-h-0 flex-1">
@@ -196,6 +238,76 @@ export default function Nesting() {
           </div>
         </div>
       </InspectorPanel>
+
+      {compareOpen && inventoryComparison &&
+        createPortal(
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            onClick={(e) => { if (e.target === e.currentTarget) setCompareOpen(false); }}
+            aria-hidden="true"
+          >
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="compare-title"
+              className="relative flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-lg border border-border bg-surface shadow-xl"
+            >
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div>
+                  <h2 id="compare-title" className="text-sm font-semibold">
+                    Comparación de optimizaciones — {inventoryComparison.fileName}
+                  </h2>
+                  <p className="mt-0.5 text-xs text-muted">
+                    Sin retazos vs. con retazos del inventario
+                  </p>
+                </div>
+                <button
+                  onClick={() => setCompareOpen(false)}
+                  aria-label="Cerrar"
+                  className="flex h-7 w-7 items-center justify-center rounded text-muted hover:bg-surface-2 hover:text-text"
+                >
+                  <X size={15} />
+                </button>
+              </div>
+              <div className="grid grid-cols-1 gap-5 overflow-auto p-5 lg:grid-cols-2">
+                <section>
+                  <h3 className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted">
+                    <span>Sin retazos</span>
+                    <span className="font-mono normal-case text-text">
+                      {inventoryComparison.sheetsWithout} placa{inventoryComparison.sheetsWithout !== 1 ? "s" : ""}
+                    </span>
+                  </h3>
+                  <LayoutMiniPreview sheets={inventoryComparison.layoutWithout ?? []} />
+                </section>
+                <section>
+                  <h3 className="mb-2 flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-muted">
+                    <span>Con retazos del inventario</span>
+                    <span className="font-mono normal-case text-text">
+                      {inventoryComparison.sheetsWith} placa{inventoryComparison.sheetsWith !== 1 ? "s" : ""}
+                      {inventoryComparison.offcutsUsed > 0 && (
+                        <> + {inventoryComparison.offcutsUsed} retazo{inventoryComparison.offcutsUsed !== 1 ? "s" : ""}</>
+                      )}
+                    </span>
+                  </h3>
+                  <LayoutMiniPreview sheets={inventoryComparison.layoutWith ?? []} />
+                </section>
+              </div>
+              <div className="flex items-center justify-between gap-3 border-t border-border bg-surface-2 px-5 py-3 text-sm">
+                <div className="flex items-center gap-2 text-success">
+                  <Recycle size={15} />
+                  <span className="font-semibold">
+                    {ARS(inventoryComparison.savingsArs)}
+                  </span>
+                  <span className="text-xs text-muted">
+                    ahorrado ({(inventoryComparison.savingsPct * 100).toFixed(1)}%)
+                  </span>
+                </div>
+                <Button variant="primary" onClick={() => setCompareOpen(false)}>Cerrar</Button>
+              </div>
+            </div>
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

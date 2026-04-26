@@ -23,8 +23,11 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from costing import HardwareItem
+from costing.calculator import CostCalculator
 from main import run_pipeline
 from nesting import OffcutInventory
+from nesting.models import Layout, PlacedPiece, Sheet, SheetUsage
+from nesting.models import Piece as NestingPiece
 from parametric import Cabinet, ShelvingUnit
 
 from .schemas import (
@@ -39,6 +42,7 @@ from .schemas import (
     PipelineResponse,
     PlacedPieceDTO,
     ProjectMeta,
+    RecomputeCostsRequest,
     SaveProjectRequest,
     SavedProject,
     SheetUsageDTO,
@@ -136,6 +140,88 @@ def run(req: PipelineRequest) -> PipelineResponse:
         raise HTTPException(status_code=400, detail=str(e))
 
     return _serialize(result)
+
+
+@app.post("/pipeline/recompute_costs", response_model=CostDTO)
+def recompute_costs(req: RecomputeCostsRequest) -> CostDTO:
+    """Recalcula el costo sobre un layout existente con las tarifas vigentes.
+
+    No reoptimiza nesting — útil cuando el usuario cambió tarifas en Ajustes
+    y quiere ver el impacto sin tener que rehacer el pipeline completo.
+    """
+    cfg_data = _read_costing_config()
+
+    pieces = [
+        NestingPiece(
+            name=p.name,
+            width=p.width,
+            height=p.height,
+            qty=p.qty,
+            grain_locked=p.grain_locked,
+            edged=p.edged,
+        )
+        for p in req.pieces
+    ]
+
+    sheets_used: List[SheetUsage] = []
+    for s in req.layout.sheets_used:
+        sheet = Sheet(
+            id=s.sheet_id,
+            width=s.sheet_width,
+            height=s.sheet_height,
+            is_offcut=s.is_offcut,
+        )
+        placements = [
+            PlacedPiece(
+                piece_name=pp.piece_name,
+                sheet_id=s.sheet_id,
+                x=pp.x,
+                y=pp.y,
+                width=pp.width,
+                height=pp.height,
+                rotated=pp.rotated,
+            )
+            for pp in s.placed
+        ]
+        sheets_used.append(SheetUsage(sheet=sheet, placements=placements))
+
+    layout = Layout(
+        sheets_used=sheets_used,
+        unplaced=[],
+        efficiency=req.layout.efficiency,
+        new_offcuts=[],
+    )
+
+    calc = CostCalculator(
+        precio_placa=cfg_data["precio_placa_mdf18"],
+        factor_retazo=cfg_data["factor_valor_retazo"],
+        precio_tapacanto_m=cfg_data["precio_tapacanto_m"],
+        costo_hora_cnc=cfg_data["costo_hora_cnc"],
+        velocidad_corte=cfg_data["velocidad_corte_mm_min"],
+        costo_hora_mo=cfg_data["costo_hora_mo"],
+        margen=cfg_data["margen"],
+        kerf=cfg_data["kerf_mm"],
+    )
+    horas_mo = req.horas_mo if req.horas_mo is not None else cfg_data["horas_mo_default"]
+    herrajes = [HardwareItem(h.nombre, h.qty, h.precio_unit) for h in req.herrajes]
+
+    b = calc.compute(layout, pieces, horas_mo=horas_mo, herrajes=herrajes)
+    return CostDTO(
+        material_placas=b.material_placas,
+        material_retazos=b.material_retazos,
+        tapacanto=b.tapacanto,
+        tiempo_cnc=b.tiempo_cnc,
+        mano_obra=b.mano_obra,
+        herrajes=b.herrajes,
+        margen=b.margen,
+        subtotal=b.subtotal,
+        total=b.total,
+        placas_nuevas=b.placas_nuevas,
+        retazos_consumidos=b.retazos_consumidos,
+        metros_tapacanto=b.metros_tapacanto,
+        minutos_cnc=b.minutos_cnc,
+        horas_mo=b.horas_mo,
+    )
 
 
 @app.get("/inventory/offcuts")

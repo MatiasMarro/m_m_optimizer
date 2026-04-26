@@ -1,11 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { Plus, FolderOpen, Trash2, X } from "lucide-react";
+import { Plus, FolderOpen, Trash2, X, Search, Copy, ArrowUp, ArrowDown } from "lucide-react";
 import Button from "@/components/ui/Button";
 import { api } from "@/lib/api";
 import { useProject } from "@/store/projectStore";
 import type { ProjectMeta } from "@/lib/types";
+
+type SortKey = "nombre" | "furniture_tipo" | "ancho" | "created_at";
+type SortDir = "asc" | "desc";
 
 function formatDate(iso: string) {
   try {
@@ -13,6 +16,24 @@ function formatDate(iso: string) {
   } catch {
     return iso;
   }
+}
+
+function SortHeader({
+  label, active, dir, onClick, align = "left",
+}: {
+  label: string; active: boolean; dir: SortDir; onClick: () => void; align?: "left" | "right";
+}) {
+  return (
+    <th className={`px-4 py-2 ${align === "right" ? "text-right" : ""}`}>
+      <button
+        onClick={onClick}
+        className={`inline-flex items-center gap-1 hover:text-text ${active ? "text-text" : ""}`}
+      >
+        {label}
+        {active && (dir === "asc" ? <ArrowUp size={11} /> : <ArrowDown size={11} />)}
+      </button>
+    </th>
+  );
 }
 
 export default function Projects() {
@@ -23,6 +44,11 @@ export default function Projects() {
   const [error, setError] = useState<string | null>(null);
   const [confirmTarget, setConfirmTarget] = useState<{ id: string; nombre: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<SortKey>("created_at");
+  const [sortDir, setSortDir] = useState<SortDir>("desc");
 
   const refresh = async () => {
     setLoading(true);
@@ -37,9 +63,35 @@ export default function Projects() {
     }
   };
 
-  useEffect(() => {
-    refresh();
-  }, []);
+  useEffect(() => { refresh(); }, []);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = q
+      ? projects.filter((p) =>
+          p.nombre.toLowerCase().includes(q) ||
+          p.furniture_tipo.toLowerCase().includes(q),
+        )
+      : projects;
+    const sorted = [...list].sort((a, b) => {
+      let av: string | number = "";
+      let bv: string | number = "";
+      switch (sortKey) {
+        case "nombre": av = a.nombre.toLowerCase(); bv = b.nombre.toLowerCase(); break;
+        case "furniture_tipo": av = a.furniture_tipo; bv = b.furniture_tipo; break;
+        case "ancho": av = a.ancho; bv = b.ancho; break;
+        case "created_at": av = a.created_at; bv = b.created_at; break;
+      }
+      const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return sorted;
+  }, [projects, query, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    else { setSortKey(key); setSortDir(key === "created_at" ? "desc" : "asc"); }
+  };
 
   const onLoad = async (id: string) => {
     setError(null);
@@ -54,7 +106,22 @@ export default function Projects() {
     }
   };
 
-  const onDelete = async (id: string, nombre: string) => {
+  const onDuplicate = async (id: string, nombre: string) => {
+    setDuplicatingId(id);
+    setError(null);
+    try {
+      const saved = await api.getProject(id);
+      const copyName = `${nombre} (copia)`;
+      await api.saveProject(copyName, saved.spec, saved.result);
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
+
+  const onDelete = (id: string, nombre: string) => {
     setConfirmTarget({ id, nombre });
   };
 
@@ -75,11 +142,29 @@ export default function Projects() {
 
   return (
     <div className="h-full overflow-auto p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Proyectos</h1>
-        <Button onClick={() => nav("/designer")}>
-          <Plus size={16} /> Nuevo proyecto
-        </Button>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-xl font-semibold">Proyectos</h1>
+          <p className="mt-0.5 text-xs text-muted">
+            {projects.length} guardado{projects.length !== 1 ? "s" : ""}
+            {query && ` · ${filtered.length} coincidencia${filtered.length !== 1 ? "s" : ""}`}
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search size={14} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-muted" />
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar por nombre…"
+              className="h-9 w-56 rounded border border-border bg-surface pl-7 pr-2 text-sm placeholder:text-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
+            />
+          </div>
+          <Button onClick={() => nav("/designer")}>
+            <Plus size={16} /> Nuevo proyecto
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -91,23 +176,38 @@ export default function Projects() {
           Cargando…
         </div>
       ) : projects.length === 0 ? (
+        <div className="mx-auto flex max-w-md flex-col items-center gap-4 rounded-lg border border-border bg-surface p-10 text-center">
+          <div className="flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-muted">
+            <FolderOpen size={22} />
+          </div>
+          <div>
+            <p className="text-base font-medium text-text">Aún no hay proyectos</p>
+            <p className="mt-1 text-sm text-muted">
+              Diseñá tu primer mueble y guardalo desde Exportar.
+            </p>
+          </div>
+          <Button variant="primary" onClick={() => nav("/designer")}>
+            <Plus size={16} /> Crear primero
+          </Button>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="rounded-lg border border-border bg-surface p-10 text-center text-muted">
-          Aún no hay proyectos. Crea el primero.
+          Sin coincidencias para "{query}".
         </div>
       ) : (
         <div className="overflow-hidden rounded-lg border border-border bg-surface">
           <table className="w-full text-sm">
             <thead className="bg-surface-2 text-left text-xs uppercase text-muted">
               <tr>
-                <th className="px-4 py-2">Nombre</th>
-                <th className="px-4 py-2">Tipo</th>
-                <th className="px-4 py-2">Dimensiones</th>
-                <th className="px-4 py-2">Creado</th>
+                <SortHeader label="Nombre" active={sortKey === "nombre"} dir={sortDir} onClick={() => toggleSort("nombre")} />
+                <SortHeader label="Tipo" active={sortKey === "furniture_tipo"} dir={sortDir} onClick={() => toggleSort("furniture_tipo")} />
+                <SortHeader label="Dimensiones" active={sortKey === "ancho"} dir={sortDir} onClick={() => toggleSort("ancho")} />
+                <SortHeader label="Creado" active={sortKey === "created_at"} dir={sortDir} onClick={() => toggleSort("created_at")} />
                 <th className="px-4 py-2 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {projects.map((p) => (
+              {filtered.map((p) => (
                 <tr key={p.id} className="border-t border-border">
                   <td className="px-4 py-2 font-medium">{p.nombre}</td>
                   <td className="px-4 py-2 text-muted">{p.furniture_tipo}</td>
@@ -119,6 +219,15 @@ export default function Projects() {
                     <div className="flex justify-end gap-2">
                       <Button variant="secondary" onClick={() => onLoad(p.id)}>
                         <FolderOpen size={14} /> Cargar
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        onClick={() => void onDuplicate(p.id, p.nombre)}
+                        disabled={duplicatingId === p.id}
+                        title="Duplicar proyecto"
+                      >
+                        <Copy size={14} />
+                        {duplicatingId === p.id ? "…" : ""}
                       </Button>
                       <Button variant="danger" onClick={() => onDelete(p.id, p.nombre)}>
                         <Trash2 size={14} />

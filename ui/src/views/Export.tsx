@@ -8,16 +8,25 @@ import { useProject } from "@/store/projectStore";
 
 export default function Export() {
   const nav = useNavigate();
-  const { spec, result } = useProject();
+  const { spec, result, activeProjectName, setActiveProjectName } = useProject();
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveModalOpen, setSaveModalOpen] = useState(false);
   const [projectName, setProjectName] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
 
+  const suggestedName = (): string => {
+    if (activeProjectName) return activeProjectName;
+    const prefix = spec.tipo === "shelving" ? "Estantería" : "Mueble";
+    return `${prefix} ${spec.ancho}×${spec.alto}`;
+  };
+
   useEffect(() => {
     if (saveModalOpen) {
-      setTimeout(() => nameInputRef.current?.focus(), 50);
+      setTimeout(() => {
+        nameInputRef.current?.focus();
+        nameInputRef.current?.select();
+      }, 50);
     }
   }, [saveModalOpen]);
 
@@ -30,6 +39,20 @@ export default function Export() {
     return () => document.removeEventListener("keydown", onKey);
   }, [saveModalOpen]);
 
+  // Ctrl+S abre modal guardar (sólo cuando hay resultado)
+  useEffect(() => {
+    if (!result) return;
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        if (!saveModalOpen) openSaveModal();
+      }
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [result, saveModalOpen, activeProjectName, spec]);
+
   const onExport = () => {
     const a = document.createElement("a");
     a.href = "/api/output/nesting.dxf";
@@ -41,7 +64,7 @@ export default function Export() {
 
   const openSaveModal = () => {
     if (!result) return;
-    setProjectName("");
+    setProjectName(suggestedName());
     setSaveMsg(null);
     setSaveModalOpen(true);
   };
@@ -52,10 +75,11 @@ export default function Export() {
     setSaveMsg(null);
     try {
       const meta = await api.saveProject(projectName.trim(), spec, result);
-      setSaveMsg(`Guardado como "${meta.nombre}" (${meta.id})`);
+      setSaveMsg(`Guardado como "${meta.nombre}"`);
+      setActiveProjectName(meta.nombre);
       setSaveModalOpen(false);
     } catch (e) {
-      setSaveMsg(`Error: ${String(e)}`);
+      setSaveMsg(`No se pudo guardar el proyecto. Probá de nuevo.`);
     } finally {
       setSaving(false);
     }

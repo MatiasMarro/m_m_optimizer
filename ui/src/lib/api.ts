@@ -1,8 +1,12 @@
 // Copyright (c) 2024-2026 Matías Marro. All rights reserved.
 // m_m_optimizer-cnc — Unauthorized use or distribution is prohibited.
 import type {
+  Cost,
   CostingConfig,
   FurnitureSpec,
+  HardwareItem,
+  Layout,
+  Piece,
   PipelineRequest,
   PipelineResponse,
   ProjectMeta,
@@ -139,6 +143,21 @@ export const api = {
     req<PipelineResponse>("/pipeline/run", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+
+  recomputeCosts: (
+    pieces: Piece[],
+    layout: Layout,
+    opts: { horas_mo?: number | null; herrajes?: HardwareItem[] } = {},
+  ) =>
+    req<Cost>("/pipeline/recompute_costs", {
+      method: "POST",
+      body: JSON.stringify({
+        pieces,
+        layout,
+        horas_mo: opts.horas_mo ?? null,
+        herrajes: opts.herrajes ?? [],
+      }),
     }),
 
   listOffcuts: () => req<OffcutStock[]>("/inventory/offcuts"),

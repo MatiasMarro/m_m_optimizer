@@ -119,6 +119,14 @@ class SaveProjectRequest(BaseModel):
     result: PipelineResponse
 
 
+class RecomputeCostsRequest(BaseModel):
+    """Recalcula solo costos con las tarifas vigentes, sin reoptimizar nesting."""
+    pieces: List[PieceDTO]
+    layout: LayoutDTO
+    horas_mo: Optional[float] = None
+    herrajes: List[HardwareItemDTO] = Field(default_factory=list)
+
+
 class CostingConfig(BaseModel):
     precio_placa_mdf18: float
     factor_valor_retazo: float
